@@ -21,7 +21,7 @@ const THEME = {
   fontMono:   "var(--font-main)",
   fontSans:   "var(--font-main)",
   borderRadius: "var(--radius, 12px)",
-  graphAccent:"var(--graph-accent)",
+  graphAccent:"var(--accent-color)",
 };
 
 function monoLabel(size = 9, color = THEME.textMuted): React.CSSProperties {
@@ -137,7 +137,7 @@ export default function FrequencyPage() {
                   <div style={{
                     width: "100%",
                     height: `${heightPct}%`,
-                    background: `linear-gradient(0deg, var(--surface-hover) 0%, var(--graph-accent) 100%)`,
+                    background: `linear-gradient(0deg, var(--surface-hover) 0%, var(--accent-color) 100%)`,
                     borderRadius: "4px 4px 0 0",
                     transition: "height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
                     position: "relative",

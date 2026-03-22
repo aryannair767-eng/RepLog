@@ -24,10 +24,10 @@ export interface ExerciseProgress {
  * Rank = Weight + (Reps / 100)
  */
 function calculateScore(weight: number, reps: number, rpe: number = 8) {
-  // Intensity Rule: Weight takes absolute priority over volume.
-  // Formula: Weight + (Volume / 10000). A heavier lift always scores higher.
-  const volume = weight * reps;
-  return weight + (volume / 10000);
+  // Intensity Rule: Give weight absolute priority while keeping reps meaningful.
+  // This ensures 72.5kg x 5 > 70kg x 10, but 40kg x 7 > 40kg x 6.
+  // Formula: Weight + (Reps / 3)
+  return weight + (reps / 3);
 }
 
 /**

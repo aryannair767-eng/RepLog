@@ -16,15 +16,13 @@ import { prisma } from "@/lib/prisma";
 import type { DashboardStats } from "@/types/replog";
 import { getAuthUserId } from "@/lib/auth";
 
-// Helper: returns the most recent Monday at midnight
+// Helper: returns 7 days ago at midnight to prevent "data loss" on Monday reset.
 function getWeekStart(): Date {
   const now = new Date();
-  const day = now.getDay(); // 0 = Sunday, 1 = Monday, ...
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+  const weekAgo = new Date(now);
+  weekAgo.setDate(now.getDate() - 7);
+  weekAgo.setHours(0, 0, 0, 0);
+  return weekAgo;
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {

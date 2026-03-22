@@ -6,10 +6,11 @@
    ═══════════════════════════════════════════════════════════ */
 :root {
   /* Backgrounds */
-  --bg: #0B0B0B;
-  --surface: rgba(255, 255, 255, 0.05);
-  --surface-hover: rgba(255, 255, 255, 0.08);
-  --surface-active: rgba(255, 255, 255, 0.12);
+  --bg: #0F0F0F;  /* Slightly lighter than pitch black */
+  --surface: #1A1A1A;
+  --surface-solid: #1E1E1E;
+  --surface-hover: #242424;
+  --surface-active: #2A2A2A;
 
   /* Typography */
   --text-primary: #FFFFFF;
@@ -18,8 +19,8 @@
   --font-main: 'Inter', 'Outfit', system-ui, sans-serif;
 
   /* Borders */
-  --border: rgba(255, 255, 255, 0.1);
-  --border-hover: rgba(255, 255, 255, 0.2);
+  --border: #262626;
+  --border-hover: #333333;
 
   /* Accent (overridden by ThemeProvider) */
   --accent-color: #CCFF00;
@@ -27,9 +28,9 @@
   --graph-accent: #00F0FF;
 
   /* Effects */
-  --card-blur: blur(12px);
-  --glow-primary: 0 0 20px rgba(204, 255, 0, 0.3);
-  --radius: 12px;
+  --card-blur: blur(20px);
+  --glow-primary: 0 0 30px rgba(var(--accent-rgb), 0.2);
+  --radius: 14px;
   --transition: 0.3s ease-in-out;
 
   /* Danger */
@@ -45,9 +46,9 @@
   --scrollbar-thumb: #27272a;
   --scrollbar-track: #0B0B0B;
 
-  /* Header */
-  --header-bg: rgba(11, 11, 11, 0.85);
-  --card-header-bg: rgba(255, 255, 255, 0.03);
+  /* Header / Surfaces */
+  --header-bg: rgba(15, 15, 15, 0.85);
+  --card-header-bg: #1A1A1A;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -55,18 +56,19 @@
    ═══════════════════════════════════════════════════════════ */
 .light {
   --bg: #F8FAFC;
-  --surface: rgba(0, 0, 0, 0.02);
-  --surface-hover: rgba(0, 0, 0, 0.05);
-  --surface-active: rgba(0, 0, 0, 0.08);
+  --surface: #FFFFFF;
+  --surface-solid: #FFFFFF;
+  --surface-hover: #F1F5F9;
+  --surface-active: #E2E8F0;
 
   --text-primary: #0F172A;
   --text-secondary: #64748B;
   --text-ghost: #94A3B8;
 
-  --border: rgba(0, 0, 0, 0.08);
-  --border-hover: rgba(0, 0, 0, 0.15);
+  --border: #E2E8F0;
+  --border-hover: #CBD5E1;
 
-  --glow-primary: 0 0 20px rgba(204, 255, 0, 0.15);
+  --glow-primary: 0 0 20px rgba(0, 0, 0, 0.05);
 
   --danger-bg: rgba(220, 38, 38, 0.06);
   --done-bg: rgba(204, 255, 0, 0.06);
@@ -74,8 +76,8 @@
   --scrollbar-thumb: #CBD5E1;
   --scrollbar-track: #F8FAFC;
 
-  --header-bg: rgba(248, 250, 252, 0.85);
-  --card-header-bg: rgba(0, 0, 0, 0.02);
+  --header-bg: rgba(255, 255, 255, 0.9);
+  --card-header-bg: #F1F5F9;
 }
 
 /* ═══════════════════════════════════════════════════════════
