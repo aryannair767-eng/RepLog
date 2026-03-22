@@ -1,0 +1,125 @@
+/* src/app/globals.css — RepLog Premium Design System */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ═══════════════════════════════════════════════════════════
+   DESIGN TOKENS — Dark Mode (Default)
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  /* Backgrounds */
+  --bg: #0B0B0B;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-active: rgba(255, 255, 255, 0.12);
+
+  /* Typography */
+  --text-primary: #FFFFFF;
+  --text-secondary: #94A3B8;
+  --text-ghost: #475569;
+  --font-main: 'Inter', 'Outfit', system-ui, sans-serif;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.2);
+
+  /* Accent (overridden by ThemeProvider) */
+  --accent-color: #CCFF00;
+  --accent-glow: rgba(204, 255, 0, 0.3);
+  --graph-accent: #00F0FF;
+
+  /* Effects */
+  --card-blur: blur(12px);
+  --glow-primary: 0 0 20px rgba(204, 255, 0, 0.3);
+  --radius: 12px;
+  --transition: 0.3s ease-in-out;
+
+  /* Danger */
+  --danger: #f87171;
+  --danger-bg: rgba(220, 38, 38, 0.1);
+  --danger-border: rgba(220, 38, 38, 0.3);
+
+  /* Done state */
+  --done-border: rgba(204, 255, 0, 0.3);
+  --done-bg: rgba(255, 255, 255, 0.04);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #27272a;
+  --scrollbar-track: #0B0B0B;
+
+  /* Header */
+  --header-bg: rgba(11, 11, 11, 0.85);
+  --card-header-bg: rgba(255, 255, 255, 0.03);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DESIGN TOKENS — Light Mode
+   ═══════════════════════════════════════════════════════════ */
+.light {
+  --bg: #F8FAFC;
+  --surface: rgba(0, 0, 0, 0.02);
+  --surface-hover: rgba(0, 0, 0, 0.05);
+  --surface-active: rgba(0, 0, 0, 0.08);
+
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-ghost: #94A3B8;
+
+  --border: rgba(0, 0, 0, 0.08);
+  --border-hover: rgba(0, 0, 0, 0.15);
+
+  --glow-primary: 0 0 20px rgba(204, 255, 0, 0.15);
+
+  --danger-bg: rgba(220, 38, 38, 0.06);
+  --done-bg: rgba(204, 255, 0, 0.06);
+
+  --scrollbar-thumb: #CBD5E1;
+  --scrollbar-track: #F8FAFC;
+
+  --header-bg: rgba(248, 250, 252, 0.85);
+  --card-header-bg: rgba(0, 0, 0, 0.02);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GLOBAL RESETS & BASE
+   ═══════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  transition: background var(--transition), color var(--transition);
+}
+
+/* Remove number spinners globally */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+/* Selection highlight */
+::selection { background: var(--accent-color); color: #000; }
+
+/* Thin custom scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  main { padding: 12px !important; }
+  header { padding: 10px 14px !important; }
+  header h1 { font-size: 14px !important; }
+}
+
+@media (max-width: 480px) {
+  main { padding: 8px !important; }
+  header { padding: 8px 10px !important; }
+}

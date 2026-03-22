@@ -1,0 +1,2498 @@
+"use client";
+// ============================================================
+// src/app/page.tsx — RepLog Main Dashboard
+//
+// HOW THIS FILE IS ORGANISED:
+// 1. IMPORTS          — libraries and server actions we use
+// 2. THEME CONSTANTS  — all colors/fonts in one place to edit
+// 3. SMALL COMPONENTS — StatCard, SetRow, RestTimer, etc.
+// 4. MODALS           — ExerciseLibrary picker
+// 5. EXERCISE CARD    — one card per exercise in the logger
+// 6. MAIN PAGE        — the full page layout
+//
+// HOW TO CHANGE COLORS:
+// Edit the THEME object below. Every color in this file comes
+// from there — you only have to change it in one place.
+//
+// HOW TO ADD A NEW STAT CARD:
+// 1. Add the field to DashboardStats in types/replog.ts
+// 2. Calculate it in src/app/actions/stats.ts
+// 3. Add a new <StatCard /> below in the "Top Tier Metrics" section
+// ============================================================
+
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
+import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
+
+// Server actions — these run on the server and talk to your DB
+import { getActiveSession, createSession, endSession, getPreviousSessions, deleteSession } from "@/app/actions/session";
+import {
+  addExerciseToSession,
+  addSet,
+  updateSetField,
+  toggleSetComplete,
+  removeExercise,
+  removeSet,
+  updateWorkoutLogExercise,
+} from "@/app/actions/sets";
+import { getDashboardStats, getGeneralExercises, getPersonalExercises, searchExercises, createLoggableExercise } from "@/app/actions/stats";
+import { getHistoricalProgress, type ExerciseProgress } from "@/app/actions/progress";
+import Link from "next/link";
+import { signOut, useSession } from "next-auth/react";
+
+// TypeScript types
+import type {
+  WorkoutSessionData,
+  WorkoutLogData,
+  SetLogData,
+  DashboardStats,
+  ExerciseData,
+  PreviousSessionSummary,
+} from "@/types/replog";
+
+// ============================================================
+// 1. THEME CONSTANTS
+// Change any value here to update it everywhere in the UI.
+// ============================================================
+const THEME = {
+  // --- Colors (all driven by CSS variables for light/dark mode) ---
+  lime: "var(--accent-color)",
+  limeHover: "var(--accent-glow)",
+  black: "var(--bg)",
+  surface: "var(--surface)",
+  surface2: "var(--surface)",
+  surface3: "var(--surface-hover)",
+  border: "var(--border)",
+  border2: "var(--border-hover)",
+  textPrimary: "var(--text-primary)",
+  textMuted: "var(--text-secondary)",
+  textDim: "var(--text-secondary)",
+  textGhost: "var(--text-ghost)",
+  danger: "var(--danger)",
+  dangerBg: "var(--danger-bg)",
+  dangerBorder: "var(--danger-border)",
+  doneBorder: "var(--done-border)",
+  doneBg: "var(--done-bg)",
+
+  // --- Fonts ---
+  fontSans: "var(--font-main)",
+  fontMono: "var(--font-main)",
+
+  // --- Spacing ---
+  borderRadius: "var(--radius, 12px)",
+
+  // --- Chart Colors ---
+  chartPalette: ["var(--accent-color)", "var(--graph-accent)", "#fbbf24", "#f472b6", "#818cf8", "#fb923c", "#2dd4bf", "#f87171", "#c084fc", "#4ade80"],
+} as const;
+
+// ============================================================
+// 2. INLINE STYLE HELPERS
+// Tiny reusable style objects so we don't repeat ourselves.
+// ============================================================
+
+// A label that looks like a clean telemetry readout
+const monoLabel = (size: number = 9, color: string = THEME.textGhost): React.CSSProperties => ({
+  fontSize: size,
+  fontFamily: THEME.fontMono,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  color,
+});
+
+// Logo-consistent label styling — used for nav + tab text.
+const brandLabel = (size: number = 13, color: string = THEME.textGhost): React.CSSProperties => ({
+  fontSize: size,
+  fontFamily: THEME.fontSans,
+  textTransform: "uppercase",
+  letterSpacing: "-0.02em",
+  color,
+  fontWeight: 800,
+  fontStyle: "normal",
+});
+
+// A standard card wrapper — glassmorphism
+const cardStyle: React.CSSProperties = {
+  background: THEME.surface,
+  backdropFilter: "blur(12px)",
+  WebkitBackdropFilter: "blur(12px)",
+  border: `1px solid ${THEME.border}`,
+  borderRadius: THEME.borderRadius,
+  overflow: "hidden",
+  transition: `all var(--transition)`,
+};
+
+const brandButton: React.CSSProperties = {
+  background: THEME.lime,
+  border: "none",
+  borderRadius: THEME.borderRadius,
+  color: "#000",
+  padding: "10px 20px",
+  cursor: "pointer",
+  fontWeight: 800,
+  fontFamily: THEME.fontSans,
+  fontSize: 12,
+  textTransform: "uppercase",
+  transition: `all var(--transition)`,
+  boxShadow: "var(--glow-primary)",
+};
+
+// ============================================================
+// 3. SMALL REUSABLE COMPONENTS
+// ============================================================
+
+// ── StatCard ──────────────────────────────────────────────────
+// The three metric cards at the top of the dashboard.
+// Props:
+//   label    — card title (e.g. "Intensity Score")
+//   value    — big number to display
+//   sub      — unit label (e.g. "/ 10 RPE")
+//   trend    — small text next to the bar (e.g. "+12.4%")
+//   barPct   — how full the progress bar is (0–100)
+//   icon     — an SVG element
+function StatCard({
+  label, value, sub, trend, barPct, icon,
+}: {
+  label: string;
+  value: string | number;
+  sub: string;
+  trend: string;
+  barPct: number;
+  icon: ReactNode;
+}) {
+  return (
+    <div style={cardStyle}>
+      {/* Card title row */}
+      <div style={{
+        borderBottom: `1px solid ${THEME.border}`,
+        padding: "7px 14px",
+        background: "var(--card-header-bg)",
+        minHeight: 52,
+        display: "flex",
+        alignItems: "center",
+      }}>
+        <span style={brandLabel(12)}>{label}</span>
+      </div>
+
+      <div style={{ padding: 16 }}>
+        {/* Icon (Centered) */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+          <span style={{ color: THEME.lime }}>{icon}</span>
+        </div>
+
+        {/* Big number */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span style={{
+            fontSize: 36, fontWeight: 900, letterSpacing: "-0.04em",
+            color: THEME.textPrimary, lineHeight: 1,
+          }}>
+            {value}
+          </span>
+          <span style={monoLabel(11, THEME.textGhost)}>{sub}</span>
+        </div>
+
+        {/* Progress bar + trend label */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+          <div style={{ flex: 1, height: 2, background: THEME.border, overflow: "hidden" }}>
+            {/* The green fill — width is controlled by barPct prop */}
+            <div style={{
+              height: "100%", background: THEME.lime,
+              width: `${Math.min(barPct, 100)}%`,
+              transition: "width 0.8s ease",
+            }} />
+          </div>
+          <span style={monoLabel(9, THEME.lime)}>{trend}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SVG Icons ─────────────────────────────────────────────────
+// Simple inline SVG icons. To swap one out, replace the path/polygon data.
+const ZapIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={THEME.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+const ActivityIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={THEME.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+  </svg>
+);
+const CalendarIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={THEME.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="18" rx="0" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+const CheckIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+const PlusIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={THEME.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+const TrashIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+// ── RestTimer ─────────────────────────────────────────────────
+// Persistent countdown timer shown inside each exercise card.
+// Resets automatically when you complete a set.
+// Props:
+//   triggerReset — a number that increments each time a set is completed.
+//                  When this changes, the timer resets.
+function RestTimer({ triggerReset }: { triggerReset: number }) {
+  // target = how many seconds to count down from (default 90s = 1:30)
+  const [target, setTarget] = useState(90);
+  const [elapsed, setElapsed] = useState(0);
+  const [running, setRunning] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // When a set is completed, reset and start the timer automatically
+  useEffect(() => {
+    // IMPORTANT FIX: Don't trigger if it's the initial render OR 
+    // if the user hasn't actually completed a set yet (restTrigger === 0)
+    if (triggerReset === 0) return;
+    setElapsed(0);
+    setRunning(true);
+  }, [triggerReset]); // Only depend on triggerReset to avoid auto-starting on toggle
+
+  // The countdown tick
+  useEffect(() => {
+    if (running) {
+      intervalRef.current = setInterval(() => {
+        setElapsed((e) => {
+          if (e >= target) {
+            clearInterval(intervalRef.current!);
+            setRunning(false);
+            return e;
+          }
+          return e + 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(intervalRef.current!);
+    }
+    return () => clearInterval(intervalRef.current!);
+  }, [running, target]);
+
+  const remaining = Math.max(target - elapsed, 0);
+  const pct = Math.min((elapsed / target) * 100, 100);
+  const isDone = remaining === 0 && elapsed > 0;
+
+  // Format as MM:SS
+  const display = `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`;
+
+  return (
+    <div style={{
+      borderTop: `1px solid ${THEME.border}`,
+      padding: "9px 14px",
+      display: "flex", alignItems: "center", gap: 10,
+      background: THEME.surface,
+    }}>
+      <span style={monoLabel(9, THEME.textGhost)}>REST</span>
+
+      {/* Progress bar — turns lime when done */}
+      <div style={{ flex: 1, height: 2, background: THEME.border, position: "relative", overflow: "hidden" }}>
+        <div style={{
+          position: "absolute", left: 0, top: 0, height: "100%",
+          width: `${pct}%`,
+          background: isDone ? THEME.lime : THEME.textGhost,
+          transition: "width 1s linear, background 0.3s",
+        }} />
+      </div>
+
+      {/* Countdown display */}
+      <span style={{
+        ...monoLabel(13),
+        color: isDone ? THEME.lime : THEME.textPrimary,
+        minWidth: 40, textAlign: "right", letterSpacing: "-0.02em",
+      }}>
+        {running || isDone ? display : "--:--"}
+      </span>
+
+      {/* Duration selector — to change rest time */}
+      <select
+        value={target}
+        onChange={(e) => { setTarget(Number(e.target.value)); setElapsed(0); }}
+        style={{
+          background: "transparent", border: "none",
+          borderBottom: `1px solid ${THEME.border2}`,
+          color: THEME.textDim, ...monoLabel(9), cursor: "pointer",
+          padding: "1px 0", borderRadius: THEME.borderRadius,
+        }}
+      >
+        {[60, 90, 120, 180, 300].map((s) => (
+          <option key={s} value={s}>{`${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`}</option>
+        ))}
+      </select>
+
+      {/* Start/Reset button */}
+      <button
+        onClick={() => { setElapsed(0); setRunning(true); }}
+        style={{
+          background: "transparent",
+          border: `1px solid ${THEME.border2}`,
+          color: THEME.lime, ...monoLabel(9),
+          padding: "3px 9px", cursor: "pointer",
+          borderRadius: THEME.borderRadius,
+        }}
+      >
+        {running ? "RESET" : "START"}
+      </button>
+    </div>
+  );
+}
+
+// ── SetRow ─────────────────────────────────────────────────────
+function SetRow({
+  set, index, onToggle, onFieldChange, onRemoveSet,
+}: {
+  set: SetLogData;
+  index: number;
+  onToggle: (id: string, current: boolean) => void;
+  onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => void;
+  onRemoveSet: (id: string) => void;
+}) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "20px 1fr 60px",
+      alignItems: "center",
+      padding: "6px 8px",
+      gap: 8,
+      border: `1px solid ${set.isCompleted ? THEME.doneBorder : "transparent"}`,
+      background: set.isCompleted ? THEME.doneBg : "transparent",
+      transition: "border-color 0.15s, background 0.15s",
+    }}>
+      {/* Set number label */}
+      <span style={{ ...monoLabel(11, THEME.textMuted), textAlign: "center" }}>{index + 1}</span>
+
+      {/* The 4 input segments: Weight | Reps | RPE | RIR */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
+        {(["weight", "reps", "rpe", "rir"] as const).map((field) => (
+          <input
+            key={field}
+            type="number"
+            step={field === "weight" || field === "rpe" ? "0.1" : "1"}
+            inputMode={field === "weight" || field === "rpe" ? "decimal" : "numeric"}
+            defaultValue={set[field] === 0 ? "" : set[field]}
+            placeholder="—"
+            onChange={(e) => {
+              const max = field === "rpe" || field === "rir" ? 10 : 999;
+              const val = Math.min(Math.max(0, Number(e.target.value) || 0), max);
+              onFieldChange(set.id, field, val);
+            }}
+            onKeyDown={(e) => {
+              const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"];
+              if (field === "weight" || field === "rpe") allowed.push(".", ",");
+              if (!allowed.includes(e.key) && !/^[0-9]$/.test(e.key)) {
+                e.preventDefault();
+              }
+            }}
+            style={{
+              display: "block",
+              width: "100%",
+              background: "transparent",
+              border: "none",
+              borderBottom: `1.5px solid ${THEME.lime}`,
+              borderRadius: THEME.borderRadius,
+              color: THEME.textPrimary,
+              fontSize: 13,
+              fontFamily: THEME.fontMono,
+              padding: "2px 0 3px",
+              textAlign: "center",
+              outline: "none",
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Actions container: Remove & Complete */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        {/* Remove Button (X) */}
+        {!set.isCompleted && (
+          <button
+            onClick={() => onRemoveSet(set.id)}
+            style={{
+              width: 18, height: 18, padding: 0,
+              background: "transparent", border: "none",
+              color: THEME.textGhost, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12,
+            }}
+          >
+            ✕
+          </button>
+        )}
+
+        {/* Check/done button */}
+        <button
+          onClick={() => onToggle(set.id, set.isCompleted)}
+          style={{
+            marginLeft: "auto",
+            width: 24, height: 24,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: `1px solid ${set.isCompleted ? THEME.lime : THEME.border2}`,
+            background: set.isCompleted ? THEME.lime : "transparent",
+            cursor: "pointer",
+            transition: "all 0.15s",
+            borderRadius: THEME.borderRadius,
+          }}
+        >
+          {set.isCompleted && <CheckIcon />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 4. EXERCISE CARD
+// One card per exercise added to the current session.
+// Handles its own optimistic state for instant UI feedback.
+// ============================================================
+function ExerciseCard({
+  log,
+  onRemove,
+  onEdit,
+  showTimer = true,
+}: {
+  log: WorkoutLogData;
+  onRemove: (id: string) => void;
+  onEdit: (id: string) => void;
+  showTimer?: boolean;
+}) {
+  // Local copy of sets — allows instant UI updates without waiting for DB
+  const [sets, setSets] = useState<SetLogData[]>(log.sets);
+  // Error message shown in red if a DB save fails
+  const [error, setError] = useState<string | null>(null);
+  // Increments each time a set is completed — triggers the rest timer
+  const [restTrigger, setRestTrigger] = useState(0);
+  // Debounce timers: key = "setId-field", value = timeout ID
+  const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // ── handleToggle ────────────────────────────────────────────
+  // Marks a set as done/undone.
+  // 1. Update local state immediately (optimistic)
+  // 2. Save to DB in the background
+  // 3. If it fails, revert the change and show an error
+  const handleToggle = useCallback(async (setId: string, current: boolean) => {
+    const newVal = !current;
+
+    // Step 1: instant UI update
+    setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: newVal } : s));
+
+    // Trigger rest timer when completing a set
+    if (newVal) setRestTrigger((t) => t + 1);
+
+    try {
+      // Step 2: save to DB
+      await toggleSetComplete(setId, newVal);
+    } catch {
+      // Step 3: revert on failure
+      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: current } : s));
+      setError("Could not save — check your connection and try again.");
+    }
+  }, []);
+
+  // ── handleFieldChange ────────────────────────────────────────
+  // Called on every keystroke — debounced to only hit the DB
+  // after the user stops typing for 600ms.
+  const handleFieldChange = useCallback(
+    (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => {
+      // Instant local update
+      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: value } : s));
+
+      // Debounce the DB write — cancel the previous timer for this field
+      const key = `${setId}-${field}`;
+      clearTimeout(debounceRef.current[key]);
+      debounceRef.current[key] = setTimeout(async () => {
+        try {
+          await updateSetField(setId, field, value);
+        } catch {
+          // If save fails, show error but don't revert the input
+          // (the user is still typing — reverting would be jarring)
+          setError(`Failed to save ${field}. Will retry...`);
+          // Retry once after 2 seconds
+          setTimeout(async () => {
+            try {
+              await updateSetField(setId, field, value);
+              setError(null); // clear error on success
+            } catch {
+              setError(`Data not saved: ${field} on set ${setId}. Re-enter to try again.`);
+            }
+          }, 2000);
+        }
+      }, 600); // 600ms debounce window
+    },
+    []
+  );
+
+  // ── handleAddSet ─────────────────────────────────────────────
+  const handleAddSet = async () => {
+    // Optimistic: add a placeholder set immediately
+    const tempId = `temp-${Date.now()}`;
+    const newSet: SetLogData = {
+      id: tempId,
+      setNumber: sets.length + 1,
+      weight: 0, reps: 0, rpe: 0, rir: 0,
+      isCompleted: false,
+    };
+    setSets((prev) => [...prev, newSet]);
+
+    try {
+      const realId = await addSet(log.id);
+      // Replace the temp ID with the real DB id
+      setSets((prev) => prev.map((s) => s.id === tempId ? { ...s, id: realId } : s));
+    } catch {
+      // Remove the optimistic set if save failed
+      setSets((prev) => prev.filter((s) => s.id !== tempId));
+      setError("Could not add set. Try again.");
+    }
+  };
+
+  // ── handleRemoveSet ──────────────────────────────────────────
+  const handleRemoveSet = async (setId: string) => {
+    // Optimistic delete
+    setSets((prev) => prev.filter((s) => s.id !== setId));
+    try {
+      await removeSet(setId);
+    } catch {
+      // If it fails, we typically would revert, but practically it's rare.
+      setError("Failed to delete set. Refresh page.");
+    }
+  };
+
+  return (
+    <div style={{
+      border: `1px solid ${THEME.border}`,
+      background: THEME.surface2,
+      marginBottom: 14,
+      borderRadius: THEME.borderRadius,
+    }}>
+      {/* Header: Exercise Name + Mechanics + Actions */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+        padding: "16px 16px 12px",
+      }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div>
+            <h3 style={{ fontSize: 14, fontWeight: 900, textTransform: "uppercase", margin: 0, fontStyle: "" }}>
+              {log.exercise.name}
+            </h3>
+            <span style={{ ...monoLabel(9, THEME.textMuted), textTransform: "uppercase" }}>
+              {log.exercise.mechanics} • {log.exercise.primaryMuscle}
+            </span>
+          </div>
+
+          <button
+            onClick={() => onEdit(log.id)}
+            title="Edit / Swap Exercise"
+            style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              padding: 4, display: "flex", alignItems: "center", justifyContent: "center",
+              color: THEME.textGhost,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+        </div>
+        {/* Remove exercise from session */}
+        <button
+          onClick={() => onRemove(log.id)}
+          title="Remove exercise"
+          style={{
+            background: "transparent", border: "none",
+            color: THEME.textGhost, cursor: "pointer", fontSize: 16,
+          }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Error banner — only shown if something fails */}
+      {error && (
+        <div style={{
+          background: THEME.dangerBg,
+          borderBottom: `1px solid ${THEME.dangerBorder}`,
+          padding: "6px 14px",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span style={monoLabel(9, THEME.danger)}>{error}</span>
+          <button
+            onClick={() => setError(null)}
+            style={{ background: "none", border: "none", color: THEME.danger, cursor: "pointer" }}
+          >✕</button>
+        </div>
+      )}
+
+      {/* Column headers: Set | Weight | Reps | RPE | RIR | Done */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "20px 1fr 60px",
+        padding: "7px 8px", gap: 8,
+      }}>
+        <span style={monoLabel()}>#</span>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
+          {["Weight", "Reps", "RPE", "RIR"].map((h) => (
+            <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+              <span style={{ ...monoLabel(), textAlign: "center" }}>{h}</span>
+              {(h === "RPE" || h === "RIR") && (
+                <div
+                  title={h === "RPE"
+                    ? "Rate of Perceived Exertion (0-10): 0 = Least effort, 10 = Most effort (Absolute Max)."
+                    : "Reps in Reserve: 0 = No reps more (Absolute failure), 5 = 5 more reps before failure."}
+                  style={{
+                    width: 11, height: 11, borderRadius: 6,
+                    background: THEME.surface3, border: `1px solid ${THEME.border}`,
+                    color: THEME.textMuted, fontSize: 8, fontFamily: THEME.fontMono,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "help"
+                  }}
+                >i</div>
+              )}
+            </div>
+          ))}
+        </div>
+        <span style={{ ...monoLabel(), textAlign: "right" }}>Done</span>
+      </div>
+
+      {/* Set rows */}
+      <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 3 }}>
+        {sets.map((set, i) => (
+          <SetRow
+            key={set.id}
+            set={set}
+            index={i}
+            onToggle={handleToggle}
+            onFieldChange={handleFieldChange}
+            onRemoveSet={handleRemoveSet}
+          />
+        ))}
+      </div>
+
+      {/* Rest timer — auto-starts when a set is completed */}
+      {showTimer && <RestTimer triggerReset={restTrigger} />}
+
+      {/* Add Set button */}
+      <button
+        onClick={handleAddSet}
+        style={{
+          width: "100%", padding: 8,
+          ...monoLabel(9, THEME.textGhost),
+          background: "transparent", border: "none",
+          borderTop: `1px solid ${THEME.border}`,
+          cursor: "pointer", display: "flex",
+          alignItems: "center", justifyContent: "center", gap: 4,
+          borderRadius: THEME.borderRadius,
+          transition: "color 0.15s, background 0.15s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.color = THEME.textPrimary;
+          (e.currentTarget as HTMLButtonElement).style.background = THEME.surface3;
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.color = THEME.textGhost;
+          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+        }}
+      >
+        <PlusIcon /> Add Set
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// 5. EXERCISE LIBRARY MODAL
+// Shown when the user clicks "+ Add Exercise".
+// Searches the exercises table in real time.
+// ============================================================
+// ============================================================
+// 5. PROGRESS MATRIX & LINE CHART
+// ============================================================
+
+function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; onNavigate: (tab: "dashboard" | "logger" | "progress" | "library") => void }) {
+  const [data, setData] = useState<ExerciseProgress[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    getHistoricalProgress().then((res) => {
+      setData(res);
+      setLoading(false);
+    });
+  }, [refreshKey]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", ...monoLabel(12) }}>Analyzing history...</div>;
+
+  if (data.length === 0) {
+    return (
+      <div style={{
+        padding: "80px 20px", textAlign: "center",
+        border: `1px dashed ${THEME.border}`,
+        borderRadius: THEME.borderRadius,
+        background: "rgba(163,230,53,0.01)"
+      }}>
+        <div style={{ marginBottom: 20, opacity: 0.4 }}>
+          <ActivityIcon />
+        </div>
+        <h2 style={brandLabel(20, THEME.textPrimary)}>Strength Engine Offline</h2>
+        <p style={{ ...monoLabel(11, THEME.textMuted), maxWidth: 420, margin: "14px auto", lineHeight: 1.6 }}>
+          Your performance matrices are currently empty. These graphs track your weight and rep progress over time.
+          To see your strength trends, start a session and log completed exercises.
+        </p>
+        <button
+          onClick={() => onNavigate("logger")}
+          style={{
+            ...monoLabel(11, THEME.black),
+            background: THEME.lime,
+            border: "none",
+            padding: "10px 28px",
+            cursor: "pointer",
+            marginTop: 18,
+            fontWeight: 900,
+            textTransform: "uppercase"
+          }}
+        >
+          START FIRST SESSION →
+        </button>
+      </div>
+    );
+  }
+
+  const upper = data.filter(d => d.category === "Upper");
+  const lower = data.filter(d => d.category === "Lower");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+      <section>
+        <h2 style={{ ...brandLabel(12, THEME.textPrimary), marginBottom: 16, borderLeft: `3px solid ${THEME.lime}`, paddingLeft: 12 }}>
+          Upper Body Performance Matrix
+        </h2>
+        <LineChart data={upper} />
+      </section>
+
+      <section>
+        <h2 style={{ ...brandLabel(12, THEME.textPrimary), marginBottom: 16, borderLeft: `3px solid ${THEME.lime}`, paddingLeft: 12 }}>
+          Lower Body Performance Matrix
+        </h2>
+        <LineChart data={lower} />
+      </section>
+
+      <div style={{ marginTop: 20, textAlign: "center", borderTop: `1px solid ${THEME.border}`, paddingTop: 20 }}>
+        <p style={monoLabel(9, THEME.textGhost)}>Metric: Weight + (Reps / 100) — Primary: Absolute Load</p>
+      </div>
+    </div>
+  );
+}
+
+function LineChart({ data }: { data: ExerciseProgress[] }) {
+  const [hoveredEx, setHoveredEx] = useState<string | null>(null);
+  const [lockedEx, setLockedEx] = useState<string | null>(null);
+  const [removedExs, setRemovedExs] = useState<string[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string, name: string } | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
+
+  if (data.length === 0) return (
+    <div style={cardStyle}>
+      <div style={{ padding: 40, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
+        No data captured for this kinetic chain.
+      </div>
+    </div>
+  );
+
+  // 1. Find all shared dates for the X-axis
+  const allDates = Array.from(new Set(data.flatMap(d => d.points.map(p => p.date)))).sort();
+  const dateMap = Object.fromEntries(allDates.map((d, i) => [d, i]));
+  const xMax = allDates.length - 1 || 1;
+
+  // 2. Process data for baseline visualization & breaks
+  const filteredData = data.filter(ex => !removedExs.includes(ex.exerciseId));
+
+  const processedData = filteredData.map(ex => {
+    // Sort points chronologically
+    const sortedPoints = [...ex.points].sort((a, b) => a.date.localeCompare(b.date));
+    const initialScore = sortedPoints.length > 0 ? sortedPoints[0].score : 0;
+
+    // Simply connect the actual data points
+    const timelinePoints = sortedPoints.map(p => ({
+      date: p.date,
+      relativeScore: p.score - initialScore,
+      weight: p.weight,
+      reps: p.reps
+    }));
+
+    const lastPoint = sortedPoints[sortedPoints.length - 1];
+
+    return {
+      ...ex,
+      timelinePoints,
+      initialStats: { weight: sortedPoints[0]?.weight ?? 0, reps: sortedPoints[0]?.reps ?? 0 },
+      latestStats: { weight: lastPoint?.weight ?? 0, reps: lastPoint?.reps ?? 0 },
+      totalProgress: lastPoint ? lastPoint.score - initialScore : 0
+    };
+  });
+
+  // 3. Find global min/max relative score for Y-axis scale
+  const allRelScores = processedData.flatMap(d => d.timelinePoints.map(p => p.relativeScore));
+  const maxRelScore = Math.max(...allRelScores, 0.1);
+  const minRelScore = Math.min(...allRelScores, 0); // User wants 0 as baseline bottom
+
+  const W = 600; // Shortened from 800 to fit mobile better and tighten the graph
+  const H = 260; // Slightly shorter height to match proportion
+  const P = 40; // padding
+
+  const getX = (dateIndex: number) => P + (dateIndex / xMax) * (W - 2 * P);
+  const getY = (relScore: number) => (H - P) - ((relScore - minRelScore) / (maxRelScore - minRelScore)) * (H - 2 * P);
+
+  const getExerciseColor = (name: string) => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return THEME.chartPalette[Math.abs(hash) % THEME.chartPalette.length];
+  };
+
+  const activeExId = lockedEx || hoveredEx;
+  const activeExData = processedData.find(d => d.exerciseId === activeExId);
+
+  return (
+    <div style={{ ...cardStyle, padding: "24px 16px 16px" }}>
+      {/* Search/Stats Overlay when an exercise is selected */}
+      {/* Wrapper fixed height prevents layout shift glitch on hover */}
+      <div style={{ minHeight: 64, marginBottom: 16 }}>
+        {activeExId && activeExData && (
+          <div style={{
+            paddingBottom: 12, borderBottom: `1px dashed ${THEME.border}`,
+            display: "flex", justifyContent: "space-between", alignItems: "flex-end",
+            height: "100%"
+          }}>
+            <div>
+              <div style={{ ...monoLabel(9, THEME.lime), textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                Active Focus: {activeExData.exerciseName}
+              </div>
+              <div style={{ display: "flex", gap: 20, marginTop: 4 }}>
+                <div>
+                  <span style={monoLabel(8, THEME.textGhost)}>START</span>
+                  <div style={monoLabel(11, THEME.textPrimary)}>{activeExData.initialStats.weight}kg x {activeExData.initialStats.reps}</div>
+                </div>
+                <div>
+                  <span style={monoLabel(8, THEME.textGhost)}>LATEST</span>
+                  <div style={monoLabel(11, THEME.textPrimary)}>{activeExData.latestStats.weight}kg x {activeExData.latestStats.reps}</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <span style={monoLabel(8, THEME.textGhost)}>NET PROGRESS</span>
+              <div style={{
+                fontSize: 18, fontWeight: 900, color: activeExData.totalProgress >= 0 ? THEME.lime : THEME.danger,
+                fontFamily: THEME.fontMono
+              }}>
+                {activeExData.totalProgress >= 0 ? "+" : ""}{activeExData.totalProgress.toFixed(2)}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ position: "relative", width: "100%", maxWidth: 800, overflowX: "auto" }}>
+        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", minWidth: 400 }}>
+          {/* Grid Lines */}
+          <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke={THEME.border} />
+          {/* Baseline Indicator */}
+          <line x1={P} y1={getY(0)} x2={W - P} y2={getY(0)} stroke={THEME.border} strokeDasharray="4 4" opacity={0.3} />
+
+          <line x1={P} y1={P} x2={P} y2={H - P} stroke={THEME.border} />
+
+          {/* Lines */}
+          {processedData.map((ex) => {
+            const color = getExerciseColor(ex.exerciseName);
+            const isActive = activeExId === ex.exerciseId;
+            const isVisible = !lockedEx || isActive;
+
+            if (!isVisible) return null;
+
+            return (
+              <g
+                key={ex.exerciseId}
+                style={{ opacity: activeExId && !isActive ? 0.1 : 1, transition: "opacity 0.2s" }}
+              >
+                <polyline
+                  points={ex.timelinePoints.map(p => `${getX(dateMap[p.date])},${getY(p.relativeScore)}`).join(" ")}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={isActive ? 3 : 1.5}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+
+                {ex.timelinePoints.map((p, i) => {
+                  const x = getX(dateMap[p.date]);
+                  const y = getY(p.relativeScore);
+                  return (
+                    <circle
+                      key={i}
+                      cx={x}
+                      cy={y}
+                      r={isActive ? 5 : 3}
+                      fill={color}
+                      style={{ cursor: "pointer", pointerEvents: "all" }}
+                      onMouseEnter={() => {
+                        setHoveredEx(ex.exerciseId);
+                        setTooltip({ x, y, text: `${p.weight}kg x ${p.reps}` });
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredEx(null);
+                        setTooltip(null);
+                      }}
+                      onClick={() => {
+                        setLockedEx(lockedEx === ex.exerciseId ? null : ex.exerciseId);
+                        setTooltip({ x, y, text: `${p.weight}kg x ${p.reps}` });
+                      }}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Hover Tooltip Rendered over SVG */}
+        {tooltip && (
+          <div style={{
+            position: "absolute",
+            left: `${(tooltip.x / W) * 100}%`,
+            top: `${(tooltip.y / H) * 100}%`,
+            transform: "translate(-50%, -100%)",
+            marginTop: -8, // Add some offset above the cursor
+            background: THEME.surface,
+            border: `1px solid ${THEME.lime}`,
+            color: THEME.textPrimary,
+            padding: "4px 8px",
+            borderRadius: 4,
+            ...monoLabel(10),
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+            zIndex: 10,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
+          }}>
+            {tooltip.text}
+          </div>
+        )}
+
+        {/* Legend */}
+        <div style={{
+          marginTop: 20, display: "flex", flexWrap: "wrap", gap: 12, padding: "0 10px"
+        }}>
+          {processedData.map((ex) => {
+            const color = getExerciseColor(ex.exerciseName);
+            const isLocked = lockedEx === ex.exerciseId;
+            const isActive = activeExId === ex.exerciseId;
+
+            return (
+              <button
+                key={ex.exerciseId}
+                onClick={() => setLockedEx(isLocked ? null : ex.exerciseId)}
+                onMouseEnter={() => setHoveredEx(ex.exerciseId)}
+                onMouseLeave={() => setHoveredEx(null)}
+                style={{
+                  background: isLocked ? `${color}22` : "transparent",
+                  border: `1px solid ${isLocked ? color : THEME.border2}`,
+                  padding: "6px 4px 6px 10px", borderRadius: THEME.borderRadius, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s",
+                  opacity: lockedEx && !isLocked ? 0.3 : 1
+                }}
+              >
+                <div style={{ width: 8, height: 8, background: color, borderRadius: "50%" }} />
+                <span style={{
+                  ...monoLabel(9, isLocked ? THEME.textPrimary : THEME.textMuted),
+                  textTransform: "uppercase"
+                }}>
+                  {ex.exerciseName}
+                </span>
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDelete({ id: ex.exerciseId, name: ex.exerciseName });
+                  }}
+                  style={{
+                    padding: 4, visibility: isLocked ? "visible" : "hidden",
+                    opacity: 0.6, color: THEME.danger
+                  }}
+                >
+                  <TrashIcon />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Confirmation Modal */}
+      {confirmDelete && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1000
+        }}>
+          <div style={{ ...cardStyle, maxWidth: 320, width: "90%", padding: 24, textAlign: "center" }}>
+            <h3 style={{ ...brandLabel(14, THEME.textPrimary), marginBottom: 12 }}>Remove Exercise?</h3>
+            <p style={{ ...monoLabel(10, THEME.textMuted), marginBottom: 24 }}>
+              Are you sure you want to remove "{confirmDelete.name}" from the graph visualization?
+            </p>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                style={{ ...brandButton, flex: 1, background: THEME.surface, border: `1px solid ${THEME.border}`, color: THEME.textPrimary }}
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => {
+                  setRemovedExs(prev => [...prev, confirmDelete.id]);
+                  setConfirmDelete(null);
+                  setLockedEx(null);
+                }}
+                style={{ ...brandButton, flex: 1, background: THEME.danger, color: THEME.textPrimary }}
+              >
+                REMOVE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ExerciseLibraryModalProps {
+  onSelect: (exerciseId: string) => void | Promise<void>;
+  onClose: () => void;
+  title?: string;
+}
+
+function ExerciseLibraryModal({
+  onSelect,
+  onClose,
+  title = "Select Exercise",
+}: ExerciseLibraryModalProps) {
+  const [query, setQuery] = useState("");
+  const [libTab, setLibTab] = useState<"general" | "personal">("general");
+  const [results, setResults] = useState<ExerciseData[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  // Creation sub-steps: "search" | "select-muscle" | "custom-muscle"
+  const [step, setStep] = useState<"search" | "select-muscle" | "custom-muscle">("search");
+  const [customMuscle, setCustomMuscle] = useState("");
+
+  const MUSCLES = ["Chest", "Back", "Shoulders", "Traps", "Quadriceps", "Hamstrings", "Calves", "Biceps", "Triceps", "Abs", "Glutes", "Legs", "Forearms"];
+
+  // Re-run search whenever the query or libTab changes
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      setLoading(true);
+      if (!query) {
+        if (libTab === "general") {
+          const all = await getGeneralExercises();
+          setResults(all);
+        } else {
+          const personal = await getPersonalExercises();
+          setResults(personal);
+        }
+      } else {
+        const res = await searchExercises(query);
+        setResults(res);
+      }
+      setLoading(false);
+    }, 250); // debounce search input
+    return () => clearTimeout(t);
+  }, [query, libTab]);
+
+  const exactMatchExists = results.some(
+    (r) => r.name.toLowerCase().trim() === query.toLowerCase().trim()
+  );
+
+  const handleCreate = async (muscleName: string) => {
+    if (!query.trim() || creating) return;
+    setCreating(true);
+    try {
+      const id = await createLoggableExercise(query.trim(), muscleName);
+      await onSelect(id);
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    // Dark overlay behind the modal
+    <div style={{
+      position: "fixed", inset: 0,
+      background: "rgba(0,0,0,0.88)",
+      zIndex: 50, display: "flex",
+      alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        background: THEME.surface2,
+        border: `1px solid ${THEME.border}`,
+        borderRadius: THEME.borderRadius,
+        width: "100%", maxWidth: 460,
+        maxHeight: "78vh",
+        display: "flex", flexDirection: "column",
+      }}>
+        {/* Modal header & Tab switch */}
+        <div style={{
+          padding: "12px 14px 0",
+          borderBottom: `1px solid ${THEME.border}`,
+        }}>
+          {/* Title */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", fontStyle: "", margin: 0 }}>
+              {title}
+            </h2>
+            <button
+              onClick={onClose}
+              style={{ background: "none", border: "none", color: THEME.textMuted, cursor: "pointer", ...monoLabel(14) }}
+            >✕</button>
+          </div>
+          <div style={{ display: "flex", gap: 16 }}>
+            {(["general", "personal"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setLibTab(t)}
+                style={{
+                  ...monoLabel(9, libTab === t ? THEME.lime : THEME.textGhost),
+                  background: "transparent", border: "none", alignSelf: "flex-end",
+                  borderBottom: `2px solid ${libTab === t ? THEME.lime : "transparent"}`,
+                  padding: "0 0 8px", cursor: "pointer", marginBottom: -1,
+                }}
+              >
+                {t.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Search input (only in search step) */}
+        {step === "search" && (
+          <div style={{ padding: "9px 14px", borderBottom: `1px solid ${THEME.border}` }}>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name or muscle..."
+              style={{
+                width: "100%",
+                background: "transparent", border: "none",
+                borderBottom: `1.5px solid ${THEME.lime}`,
+                borderRadius: THEME.borderRadius,
+                color: THEME.textPrimary, fontSize: 13,
+                fontFamily: THEME.fontMono, padding: "4px 0", outline: "none",
+              }}
+            />
+          </div>
+        )}
+
+        {/* Results list or Muscle Selection Grid */}
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {step === "search" && (
+            <>
+              {loading && (
+                <div style={{ padding: 16, textAlign: "center", ...monoLabel() }}>
+                  Querying database...
+                </div>
+              )}
+
+              {/* Create Button */}
+              {!loading && query.trim() !== "" && !exactMatchExists && (
+                <button
+                  onClick={() => setStep("select-muscle")}
+                  disabled={creating}
+                  style={{
+                    width: "100%", background: "rgba(163,230,53,0.05)", border: "none",
+                    borderBottom: `1px dashed ${THEME.lime}`, padding: "11px 14px",
+                    cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12
+                  }}
+                >
+                  <div style={{ width: 20, height: 20, borderRadius: 10, border: `1px solid ${THEME.lime}`, display: "flex", alignItems: "center", justifyContent: "center", color: THEME.lime }}>+</div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: THEME.lime, letterSpacing: "-0.02em" }}>
+                      Create "{query.trim()}"
+                    </div>
+                    <div style={monoLabel(9, THEME.limeHover)}>Assign muscle group next</div>
+                  </div>
+                </button>
+              )}
+
+              {!loading && results.length === 0 && (
+                <div style={{ padding: 16, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
+                  No exercises found. Type a name to create it.
+                </div>
+              )}
+              {results.map((ex) => (
+                <button
+                  key={ex.id}
+                  onClick={async () => {
+                    await onSelect(ex.id);
+                    onClose();
+                  }}
+                  style={{
+                    width: "100%", background: "transparent", border: "none",
+                    borderBottom: `1px solid ${THEME.border}`,
+                    padding: "11px 14px", cursor: "pointer",
+                    textAlign: "left", display: "flex",
+                    justifyContent: "space-between", alignItems: "center",
+                    borderRadius: THEME.borderRadius,
+                    transition: "background 0.1s",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.surface3)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <div>
+                    <div style={{
+                      fontSize: 12, fontWeight: 700,
+                      textTransform: "uppercase", color: THEME.textPrimary,
+                      letterSpacing: "-0.02em",
+                    }}>
+                      {ex.name}
+                    </div>
+                    <div style={{ ...monoLabel(9, THEME.textGhost), marginTop: 2 }}>
+                      {ex.primaryMuscle} · {ex.mechanics}
+                    </div>
+                  </div>
+                  <PlusIcon />
+                </button>
+              ))}
+            </>
+          )}
+
+          {step === "select-muscle" && (
+            <div style={{ padding: 16 }}>
+              <p style={{ ...monoLabel(10, THEME.textPrimary), marginBottom: 16, textAlign: "center" }}>
+                SELECT MUSCLE GROUP FOR "{query.trim()}"
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {MUSCLES.map(m => (
+                  <button
+                    key={m}
+                    onClick={() => handleCreate(m)}
+                    style={{
+                      background: THEME.surface3, border: `1px solid ${THEME.border}`,
+                      color: THEME.textPrimary, padding: "10px", borderRadius: THEME.borderRadius,
+                      cursor: "pointer", ...monoLabel(10), textAlign: "center",
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.lime; e.currentTarget.style.color = THEME.lime; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border; e.currentTarget.style.color = THEME.textPrimary; }}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setStep("custom-muscle")}
+                style={{
+                  width: "100%", marginTop: 12, background: "transparent",
+                  border: `1px dashed ${THEME.textDim}`, color: THEME.textDim,
+                  padding: "10px", borderRadius: THEME.borderRadius, cursor: "pointer",
+                  ...monoLabel(10), transition: "all 0.15s"
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.textPrimary; e.currentTarget.style.color = THEME.textPrimary; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.textDim; e.currentTarget.style.color = THEME.textDim; }}
+              >
+                + ADD NEW MUSCLE GROUP
+              </button>
+
+              <button
+                onClick={() => setStep("search")}
+                style={{
+                  width: "100%", marginTop: 24, background: "transparent", border: "none",
+                  color: THEME.textGhost, ...monoLabel(9), cursor: "pointer", textDecoration: "underline"
+                }}
+              >
+                BACK TO SEARCH
+              </button>
+            </div>
+          )}
+
+          {step === "custom-muscle" && (
+            <div style={{ padding: 24, textAlign: "center" }}>
+              <p style={{ ...monoLabel(10, THEME.textPrimary), marginBottom: 16 }}>
+                ENTER NEW MUSCLE GROUP NAME
+              </p>
+              <input
+                autoFocus
+                value={customMuscle}
+                onChange={(e) => setCustomMuscle(e.target.value)}
+                placeholder="e.g. Obliques"
+                onKeyDown={(e) => e.key === "Enter" && customMuscle.trim() && handleCreate(customMuscle.trim())}
+                style={{
+                  width: "100%", background: "transparent", border: "none",
+                  borderBottom: `2.5px solid ${THEME.lime}`, padding: "8px 0",
+                  color: THEME.textPrimary, fontSize: 16, fontFamily: THEME.fontMono,
+                  textAlign: "center", outline: "none", marginBottom: 20
+                }}
+              />
+              <button
+                disabled={!customMuscle.trim() || creating}
+                onClick={() => handleCreate(customMuscle.trim())}
+                style={{
+                  width: "100%", background: THEME.lime, color: THEME.black,
+                  fontWeight: 900, padding: "12px", border: "none",
+                  borderRadius: THEME.borderRadius, cursor: "pointer",
+                  ...monoLabel(12, THEME.black)
+                }}
+              >
+                {creating ? "CREATING..." : "CONFIRM & CREATE"}
+              </button>
+              <button
+                onClick={() => setStep("select-muscle")}
+                style={{
+                  width: "100%", marginTop: 16, background: "transparent", border: "none",
+                  color: THEME.textGhost, ...monoLabel(9), cursor: "pointer"
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviousSessionsModal({
+  sessions, loading, onClose, onDelete,
+}: {
+  sessions: PreviousSessionSummary[];
+  loading: boolean;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-GB", {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.88)",
+        zIndex: 60,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: THEME.surface2,
+          border: `1px solid ${THEME.border}`,
+          borderRadius: THEME.borderRadius,
+          width: "100%",
+          maxWidth: 560,
+          maxHeight: "78vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            padding: "12px 14px",
+            borderBottom: `1px solid ${THEME.border}`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 900,
+              textTransform: "uppercase",
+              fontStyle: "",
+              margin: 0,
+            }}
+          >
+            Previous Sessions
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: THEME.textMuted,
+              cursor: "pointer",
+              ...monoLabel(14),
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ padding: 14, overflowY: "auto", flex: 1 }}>
+          {loading ? (
+            <div style={{ padding: 20, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
+              Loading sessions...
+            </div>
+          ) : sessions.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
+              No previous sessions found
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {sessions.map((s) => (
+                <div key={s.id}>
+                  <div
+                    style={{
+                      padding: "12px 10px",
+                      borderBottom: confirmDeleteId === s.id ? "none" : `1px solid ${THEME.surface3}`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...monoLabel(9, THEME.limeHover) }}>{formatDate(s.startTime)}</div>
+                      <div style={{ ...monoLabel(10, THEME.textPrimary), marginTop: 3, textTransform: "none" }}>
+                        {s.name}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 14 }}>
+                      <div>
+                        <div style={{ ...monoLabel(9, THEME.textGhost) }}>
+                          {s.logCount} exercises
+                        </div>
+                        <div style={{ ...monoLabel(9, THEME.textGhost) }}>
+                          {s.completedSetCount} completed sets
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setConfirmDeleteId(confirmDeleteId === s.id ? null : s.id)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: confirmDeleteId === s.id ? THEME.danger : THEME.textGhost,
+                          cursor: "pointer",
+                          padding: 4,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = THEME.danger)}
+                        onMouseLeave={(e) => {
+                          if (confirmDeleteId !== s.id) e.currentTarget.style.color = THEME.textGhost;
+                        }}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Inline delete confirmation */}
+                  {confirmDeleteId === s.id && (
+                    <div style={{
+                      padding: "10px 14px",
+                      background: THEME.dangerBg,
+                      borderBottom: `1px solid ${THEME.surface3}`,
+                      borderLeft: `3px solid ${THEME.danger}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}>
+                      <span style={{ ...monoLabel(10, THEME.danger) }}>
+                        Are you sure you want to delete session?
+                      </span>
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        <button
+                          onClick={() => {
+                            onDelete(s.id);
+                            setConfirmDeleteId(null);
+                          }}
+                          style={{
+                            background: THEME.danger,
+                            border: "none",
+                            color: "#000",
+                            padding: "4px 14px",
+                            cursor: "pointer",
+                            ...monoLabel(10, "#000"),
+                            fontWeight: 900,
+                          }}
+                        >
+                          YES
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${THEME.border2}`,
+                            color: THEME.textGhost,
+                            padding: "4px 14px",
+                            cursor: "pointer",
+                            ...monoLabel(10, THEME.textGhost),
+                          }}
+                        >
+                          NO
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: 14, borderTop: `1px solid ${THEME.border}`, textAlign: "right" }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${THEME.border2}`,
+              color: THEME.textGhost,
+              padding: "6px 12px",
+              cursor: "pointer",
+              ...monoLabel(10, THEME.textGhost),
+            }}
+          >
+            CLOSE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 6. MAIN PAGE COMPONENT
+// This is the top-level component that renders the whole page.
+// It manages the big-picture state: active session, stats, tabs.
+// ============================================================
+export default function RepLogPage() {
+  // ── Page state ───────────────────────────────────────────────
+  // activeTab: controls which section is visible
+  const [activeTab, setActiveTab] = useState<"dashboard" | "logger" | "progress" | "library">("dashboard");
+  // session: the current workout session data (null = no active session)
+  const [session, setSession] = useState<WorkoutSessionData | null>(null);
+  // stats: dashboard numbers fetched from the DB
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  // showRestTimer: user preference for the timer
+  const [showRestTimer, setShowRestTimer] = useState(true);
+  // showLibrary: whether the exercise picker modal is open
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [swapTargetLogId, setSwapTargetLogId] = useState<string | null>(null);
+  // loading states for async actions
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showPreviousSessions, setShowPreviousSessions] = useState(false);
+  const [previousSessions, setPreviousSessions] = useState<PreviousSessionSummary[]>([]);
+  const [previousSessionsLoading, setPreviousSessionsLoading] = useState(false);
+  const [progressRefreshKey, setProgressRefreshKey] = useState(0);
+  const { accentColor, setAccentColor, mode, toggleMode, ACCENTS } = useTheme();
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+
+  const { data: authSession } = useSession();
+  const userName = authSession?.user?.name?.split(" ")[0] || "Athlete";
+
+  // ── Load data on page mount ───────────────────────────────────
+  // useEffect with [] runs ONCE when the page first loads.
+  useEffect(() => {
+    // Check localStorage for timer preference
+    const saved = localStorage.getItem("replog_show_timer");
+    if (saved !== null) setShowRestTimer(saved === "true");
+
+    (async () => {
+      // Fetch session and stats in parallel for speed
+      const [sessionData, statsData] = await Promise.all([
+        getActiveSession(),
+        getDashboardStats(),
+      ]);
+      setSession(sessionData);
+      setStats(statsData);
+      setSessionLoading(false);
+      setStatsLoading(false);
+    })();
+  }, []);
+
+  // Refresh stats whenever switching to Dashboard or Progress tab
+  useEffect(() => {
+    if (activeTab === "dashboard" || activeTab === "progress") {
+      (async () => {
+        const newerStats = await getDashboardStats();
+        setStats(newerStats);
+      })();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!showPreviousSessions) return;
+
+    let cancelled = false;
+    setPreviousSessionsLoading(true);
+
+    getPreviousSessions()
+      .then((sessions) => {
+        if (!cancelled) setPreviousSessions(sessions);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviousSessions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviousSessionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showPreviousSessions]);
+
+  const toggleTimer = () => {
+    const newVal = !showRestTimer;
+    setShowRestTimer(newVal);
+    localStorage.setItem("replog_show_timer", String(newVal));
+  };
+
+  // ── handleStartSession ────────────────────────────────────────
+  const handleStartSession = async () => {
+    setActionLoading(true);
+    const newSession = await createSession();
+    setSession(newSession);
+    setActiveTab("logger"); // jump to logger tab after starting
+    setActionLoading(false);
+  };
+
+  // ── handleEndSession ──────────────────────────────────────────
+  const handleEndSession = async () => {
+    if (!session) return;
+    setActionLoading(true);
+    await endSession(session.id);
+    setSession(null);
+    // Refresh stats now that the session is complete
+    const newStats = await getDashboardStats();
+    setStats(newStats);
+    // Refresh the Progress view so newly-completed sessions appear immediately
+    setProgressRefreshKey((k) => k + 1);
+    setActionLoading(false);
+  };
+
+  // ── handleAddExercise ─────────────────────────────────────────
+  const handleAddExercise = async (exerciseId: string) => {
+    if (swapTargetLogId) {
+      await updateWorkoutLogExercise(swapTargetLogId, exerciseId);
+      setSwapTargetLogId(null);
+    } else {
+      if (!session) return;
+      await addExerciseToSession(session.id, exerciseId);
+    }
+    // Re-fetch the session so the new exercise card appears
+    const updated = await getActiveSession();
+    setSession(updated);
+    setIsLibraryOpen(false);
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    setActionLoading(true);
+    await deleteSession(sessionId);
+    // Refresh previous sessions list
+    const updated = await getPreviousSessions();
+    setPreviousSessions(updated);
+    // Also refresh dashboard stats in case the deleted session affected them
+    const newStats = await getDashboardStats();
+    setStats(newStats);
+    setProgressRefreshKey((k) => k + 1);
+    setActionLoading(false);
+  };
+
+  // ── handleRemoveExercise ──────────────────────────────────────
+  const handleRemoveExercise = async (workoutLogId: string) => {
+    await removeExercise(workoutLogId);
+    const updated = await getActiveSession();
+    setSession(updated);
+  };
+
+  // ── Derived stats for the stat cards ─────────────────────────
+  // Optional chaining (?.) prevents crashes when stats is null
+  const maxDayVolume = Math.max(...(stats?.volumeByDay?.map((d) => d.totalSets) ?? [1]), 1);
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "var(--bg)",
+      color: "var(--text-primary)",
+      fontFamily: "var(--font-main)",
+      transition: "background var(--transition), color var(--transition)",
+    }}>
+
+      {/* ── HEADER ───────────────────────────────────────────── */}
+      <header style={{
+        borderBottom: `1px solid var(--border)`,
+        background: "var(--header-bg)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        padding: "13px 24px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        position: "sticky", top: 0, zIndex: 40,
+        transition: "background var(--transition), border-color var(--transition)",
+      }}>
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 32, height: 32, background: THEME.lime,
+            borderRadius: 8,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "var(--glow-primary)",
+            transition: "background var(--transition), box-shadow var(--transition)",
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#000">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
+          <div>
+            <h1 style={{
+              fontSize: 16, fontWeight: 900, letterSpacing: "-0.02em",
+              textTransform: "uppercase", fontStyle: "normal",
+              color: THEME.textPrimary, margin: 0,
+            }}>
+              RepLog
+            </h1>
+            {/* Status line — shows session name or "No Active Session" */}
+            <p style={{ ...monoLabel(9), margin: 0 }}>
+              {session?.isActive
+                ? `Session: ${session.name} — LIVE`
+                : "No Active Session"}
+            </p>
+          </div>
+        </div>
+
+        {/* Header Actions */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
+          {/* Theme Dropdown Menu */}
+          {isThemeMenuOpen && (
+            <div 
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: 8,
+                background: "var(--surface)",
+                backdropFilter: "blur(20px)",
+                WebkitBackdropFilter: "blur(20px)",
+                border: `1px solid var(--border)`,
+                borderRadius: "var(--radius)",
+                padding: "16px",
+                width: 240,
+                zIndex: 100,
+                boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
+                transition: "all var(--transition)",
+              }}
+              onMouseLeave={() => setIsThemeMenuOpen(false)}
+            >
+              <div style={{ ...monoLabel(10, THEME.textDim), marginBottom: 12, borderBottom: `1px solid ${THEME.border}`, paddingBottom: 6 }}>
+                SELECT ACCENT COLOR
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {ACCENTS.map(a => (
+                  <button
+                    key={a.name}
+                    onClick={() => {
+                      setAccentColor(a.color);
+                      // setIsThemeMenuOpen(false); // keep open for quick testing? no, close as per user expectation
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      background: "transparent",
+                      border: `1px solid ${accentColor === a.color ? THEME.lime : THEME.border}`,
+                      color: THEME.textPrimary,
+                      padding: "6px 8px",
+                      borderRadius: "2px",
+                      cursor: "pointer",
+                      ...monoLabel(8),
+                      textAlign: "left",
+                      transition: "all 0.1s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = THEME.lime)}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = accentColor === a.color ? THEME.lime : THEME.border)}
+                  >
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: a.color, boxShadow: `0 0 6px ${a.color}40` }} />
+                    {a.name.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {session?.isActive ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {/* Dark/Light mode toggle */}
+              <button
+                onClick={toggleMode}
+                style={{
+                  background: "transparent",
+                  border: `1px solid var(--border)`,
+                  color: "var(--text-primary)",
+                  padding: "6px 10px",
+                  borderRadius: "var(--radius)",
+                  cursor: "pointer",
+                  transition: "var(--transition)",
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent-color)")}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                title={`Switch to ${mode === "dark" ? "Light" : "Dark"} Mode`}
+              >
+                {mode === "dark" ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                )}
+              </button>
+              
+              <button
+                onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid var(--border)`,
+                  color: "var(--text-primary)",
+                  padding: "6px 14px",
+                  ...monoLabel(10, "var(--text-primary)"),
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  transition: "var(--transition)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent-color)")}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+              >
+                CHANGE THEME
+              </button>
+              <button
+                onClick={handleEndSession}
+                disabled={actionLoading}
+                style={{
+                  background: "var(--accent-color)",
+                  color: "#000",
+                  border: `1px solid var(--accent-color)`,
+                  padding: "8px 18px",
+                  ...brandLabel(11, "#000"),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  opacity: actionLoading ? 0.6 : 1,
+                  boxShadow: `var(--glow-primary)`,
+                  transition: "var(--transition)"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "scale(1.02)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                {actionLoading ? "ENDING..." : "END SESSION"}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {/* Dark/Light mode toggle */}
+              <button
+                onClick={toggleMode}
+                style={{
+                  background: "transparent",
+                  border: `1px solid var(--border)`,
+                  color: "var(--text-primary)",
+                  padding: "6px 10px",
+                  borderRadius: "var(--radius)",
+                  cursor: "pointer",
+                  transition: "var(--transition)",
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent-color)")}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                title={`Switch to ${mode === "dark" ? "Light" : "Dark"} Mode`}
+              >
+                {mode === "dark" ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                )}
+              </button>
+
+              <button
+                onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid var(--border)`,
+                  color: "var(--text-ghost)",
+                  padding: "5px 12px",
+                  ...monoLabel(9, "var(--text-ghost)"),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  transition: "var(--transition)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent-color)")}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+              >
+                CHANGE THEME
+              </button>
+              <button
+                onClick={handleStartSession}
+                disabled={actionLoading}
+                style={{
+                  background: "var(--text-primary)", 
+                  color: "var(--bg)",
+                  border: "none", padding: "5px 14px",
+                  ...brandLabel(10, "var(--bg)"),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  opacity: actionLoading ? 0.6 : 1,
+                  transition: "var(--transition)",
+                }}
+              >
+                {actionLoading ? "Starting..." : "New Session"}
+              </button>
+            </div>
+          )}
+
+
+
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            style={{
+              background: "transparent",
+              border: `1px solid var(--border)`,
+              color: "var(--text-ghost)", padding: "5px 10px",
+              ...monoLabel(9, "var(--text-ghost)"),
+              cursor: "pointer",
+              borderRadius: "var(--radius)",
+              transition: "var(--transition)",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-ghost)")}
+          >
+            Log Out
+          </button>
+        </div>
+      </header>
+
+      <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+
+        {/* ── TAB BAR ──────────────────────────────────────────── */}
+        {/* To add a tab: add a button here and a matching section below */}
+        <div style={{
+          display: "flex", gap: 0,
+          borderBottom: `1px solid ${THEME.border}`,
+          marginBottom: 22,
+        }}>
+          {(["dashboard", "logger", "progress", "library"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                ...brandLabel(13, activeTab === tab ? THEME.lime : THEME.textGhost),
+                background: "transparent", border: "none",
+                borderBottom: `2px solid ${activeTab === tab ? THEME.lime : "transparent"}`,
+                padding: "8px 16px", cursor: "pointer",
+                marginBottom: -1, transition: "color 0.15s",
+                borderRadius: THEME.borderRadius,
+              }}
+            >
+              {tab.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {/* ══════════════════════════════════════════════════════
+            TAB: DASHBOARD
+            Shows stats, volume chart, PRs, and muscle distribution.
+        ══════════════════════════════════════════════════════ */}
+        {activeTab === "dashboard" && (
+          <div>
+            {/* Welcome message strictly for brand new users */}
+            {!statsLoading && (stats?.totalSessionsEver ?? 0) === 0 && (
+              <div style={{
+                background: "var(--done-bg)",
+                border: `1px solid var(--accent-color)`,
+                padding: "20px",
+                marginBottom: "22px",
+                borderRadius: "var(--radius)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                textAlign: "center"
+              }}>
+                <h2 style={brandLabel(16, THEME.lime)}>Welcome to RepLog, {userName}!</h2>
+                <p style={{ ...monoLabel(10, THEME.textPrimary), marginTop: 8, maxWidth: 450 }}>
+                  Your dashboard is ready. Once you complete your first workout session,
+                  your intensity, volume, and frequency metrics will populate here.
+                </p>
+                <button
+                  onClick={() => setActiveTab("logger")}
+                  style={{
+                    marginTop: 14,
+                    background: THEME.lime,
+                    color: THEME.black,
+                    border: "none",
+                    padding: "6px 16px",
+                    ...monoLabel(10, THEME.black),
+                    fontWeight: 900,
+                    cursor: "pointer"
+                  }}
+                >
+                  GO TO LOGGER →
+                </button>
+              </div>
+            )}
+            {/* ── Top 3 Stat Cards ──────────────────────────── */}
+            {/* To add/remove a stat card, edit this grid and the StatCard below */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: 18, marginBottom: 22,
+            }}>
+              <StatCard
+                label="Intensity Score"
+                value={statsLoading ? "—" : (stats?.avgRpe ?? 0)}
+                sub="/ 10 RPE"
+                // trend logic: show "High" if avg RPE is above 8
+                trend={stats && stats.avgRpe > 8 ? "High" : "Optimal"}
+                barPct={(stats?.avgRpe ?? 0) / 10 * 100}
+                icon={<ZapIcon />}
+              />
+              <Link href="/volume" style={{ textDecoration: "none" }}>
+                <StatCard
+                  label="Weekly Volume"
+                  value={statsLoading ? "—" : (stats?.totalSetsThisWeek ?? 0)}
+                  sub="SETS"
+                  trend="View Breakdown →"
+                  barPct={Math.min(((stats?.totalSetsThisWeek ?? 0) / 100) * 100, 100)}
+                  icon={<ActivityIcon />}
+                />
+              </Link>
+              <Link href="/frequency" style={{ textDecoration: "none" }}>
+                <StatCard
+                  label="Frequency"
+                  value={statsLoading ? "—" : (stats?.weeklyFrequency ?? 0)}
+                  sub="DAYS/WK"
+                  trend="View Breakdown →"
+                  barPct={((stats?.weeklyFrequency ?? 0) / 7) * 100}
+                  icon={<CalendarIcon />}
+                />
+              </Link>
+            </div>
+
+            {/* ── Volume Chart + PRs ────────────────────────── */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: 18, marginBottom: 22,
+            }}>
+              {/* 7-day volume bar chart */}
+              <div style={cardStyle}>
+                <div style={{
+                  borderBottom: `1px solid ${THEME.border}`,
+                  padding: "7px 14px",
+                  background: "rgba(39,39,42,0.3)",
+                }}>
+                  <span style={brandLabel(12)}>Volume Distribution</span>
+                </div>
+                <div style={{ padding: 16 }}>
+                  <div style={{
+                    display: "flex",
+                    alignItems: "stretch",
+                    height: 160,
+                    gap: 6,
+                    paddingTop: 16,
+                  }}>
+                    {/* If no stats yet, render 7 empty bars */}
+                    {(stats?.volumeByDay ?? Array.from({ length: 7 }, (_, i) => ({
+                      day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i],
+                      totalSets: 0,
+                    }))).map((d, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "flex-end",
+                          gap: 6,
+                          height: "100%", // important: so child height% can resolve
+                        }}
+                      >
+                        <div
+                          title={`${d.totalSets.toLocaleString()} sets`}
+                          style={{
+                            width: "100%",
+                            height: `${Math.max(3, (d.totalSets / maxDayVolume) * 100)}%`,
+                            background: `linear-gradient(0deg, ${THEME.surface3} 0%, var(--accent-color, ${THEME.lime}) 100%)`, cursor: "crosshair",
+                            transition: "height 0.6s ease, background 0.15s",
+                            borderRadius: "2px 2px 0 0",
+                          }}
+                          onMouseEnter={(e) => ((e.target as HTMLDivElement).style.filter = "brightness(1.2)")}
+                          onMouseLeave={(e) => ((e.target as HTMLDivElement).style.filter = "none")}
+                        />
+                        <span style={monoLabel(9)}>{d.day}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent PRs */}
+              <div style={cardStyle}>
+                <div style={{
+                  borderBottom: `1px solid ${THEME.border}`,
+                  padding: "7px 14px",
+                  background: "rgba(39,39,42,0.3)",
+                }}>
+                  <span style={brandLabel(12)}>Critical Benchmarks</span>
+                </div>
+                <div style={{ padding: 4 }}>
+                  {/* Empty state: no PRs yet */}
+                  {(stats?.recentPRs?.length ?? 0) === 0 ? (
+                    <div style={{ padding: "20px 12px", textAlign: "center" }}>
+                      <p style={monoLabel(10, THEME.textDim)}>No PRs logged yet</p>
+                      <p style={{ ...monoLabel(9), marginTop: 6 }}>Complete sets to see records here</p>
+                    </div>
+                  ) : (
+                    stats!.recentPRs.map((pr, i) => (
+                      <div key={i} style={{
+                        display: "flex", justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "10px 12px",
+                        borderBottom: i < stats!.recentPRs.length - 1 ? `1px solid ${THEME.surface3}` : "none",
+                      }}>
+                        <div>
+                          <p style={monoLabel(9)}>{pr.date}</p>
+                          <h4 style={{
+                            fontWeight: 900, textTransform: "uppercase",
+                            fontStyle: "", color: THEME.textPrimary,
+                            fontSize: 12, margin: "2px 0 0",
+                          }}>
+                            {pr.exerciseName}
+                          </h4>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <p style={{
+                            fontSize: 18, fontWeight: 900, color: THEME.lime,
+                            fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
+                          }}>
+                            {pr.weight}kg
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Muscle Distribution ───────────────────────── */}
+            <div style={{ ...cardStyle, marginBottom: 22 }}>
+              <div style={{
+                borderBottom: `1px solid ${THEME.border}`,
+                padding: "7px 14px",
+                background: "rgba(39,39,42,0.3)",
+              }}>
+                <span style={brandLabel(12)}>Muscle Distribution [7D]</span>
+              </div>
+              {/* Empty state */}
+              {(stats?.muscleDistribution?.length ?? 0) === 0 ? (
+                <div style={{ padding: "16px", textAlign: "center" }}>
+                  <p style={monoLabel(10, THEME.textDim)}>Start logging sets to see your muscle balance</p>
+                </div>
+              ) : (
+                stats!.muscleDistribution.map((m, i) => {
+                  const maxSets = stats!.muscleDistribution[0].sets;
+                  return (
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      padding: "8px 14px",
+                      borderBottom: i < stats!.muscleDistribution.length - 1
+                        ? `1px solid ${THEME.surface3}` : "none",
+                    }}>
+                      <span style={{ ...monoLabel(10, THEME.textDim), minWidth: 110 }}>{m.muscle}</span>
+                      <div style={{ flex: 1, height: 2, background: THEME.border }}>
+                        <div style={{
+                          height: "100%", background: THEME.lime,
+                          width: `${(m.sets / maxSets) * 100}%`,
+                          transition: "width 0.8s ease",
+                        }} />
+                      </div>
+                      <span style={{ ...monoLabel(10, THEME.textGhost), minWidth: 52, textAlign: "right" }}>
+                        {m.sets} sets
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            TAB: PROGRESS
+            The Performance Matrix area. Two multi-line graphs.
+        ══════════════════════════════════════════════════════ */}
+        {activeTab === "progress" && (
+          <ProgressMatrixView refreshKey={progressRefreshKey} onNavigate={setActiveTab} />
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            TAB: LOGGER
+            The live workout tracker. Shows exercise cards.
+        ══════════════════════════════════════════════════════ */}
+        {activeTab === "logger" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+              <button
+                onClick={() => setShowPreviousSessions(true)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${THEME.border}`,
+                  color: THEME.lime,
+                  padding: "4px 12px",
+                  cursor: "pointer",
+                  borderRadius: THEME.borderRadius,
+                  ...monoLabel(9, THEME.lime),
+                }}
+              >
+                Previous Sessions
+              </button>
+            </div>
+            {/* No session: show "Beginner's Guide" welcome screen */}
+            {!session && !sessionLoading && (
+              <div>
+                {/* Welcome / first-time user message */}
+                <div style={{
+                  border: `1px solid var(--border)`,
+                  borderLeft: `4px solid var(--accent-color)`,
+                  padding: "20px 24px",
+                  marginBottom: 20,
+                  background: "var(--done-bg)",
+                  borderRadius: "var(--radius)",
+                }}>
+                  <h2 style={{
+                    fontSize: 18, fontWeight: 900, textTransform: "uppercase",
+                    letterSpacing: "-0.03em", color: THEME.textPrimary, margin: "0 0 8px",
+                  }}>
+                    {(stats?.totalSessionsEver ?? 0) === 0 ? "Start Your First Session" : "Start Another Session"}
+                  </h2>
+                  <p style={{ ...monoLabel(10, THEME.textDim), marginBottom: 16 }}>
+                    Click &quot;New Session&quot; in the header to begin logging.
+                    Your sets will save automatically as you check them off.
+                  </p>
+                  {/* Quick-start guide */}
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3,1fr)",
+                    gap: 12,
+                  }}>
+                    {[
+                      { step: "01", title: "Start Session", desc: "Hit 'New Session' in the top-right header." },
+                      { step: "02", title: "Add Exercise", desc: "Click '+ Add Exercise' and search the library." },
+                      { step: "03", title: "Log Your Sets", desc: "Enter weight, reps, RPE & RIR, then check off each set." },
+                    ].map((s) => (
+                      <div key={s.step} style={{
+                        border: `1px solid var(--border)`,
+                        padding: "12px 14px",
+                        background: "var(--surface)",
+                        borderRadius: "var(--radius)",
+                      }}>
+                        <p style={{ ...monoLabel(9, THEME.lime), marginBottom: 4 }}>{s.step}</p>
+                        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: THEME.textPrimary, marginBottom: 4 }}>{s.title}</p>
+                        <p style={monoLabel(9, THEME.textGhost)}>{s.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Big start button */}
+                <button
+                  onClick={handleStartSession}
+                  disabled={actionLoading}
+                  style={{
+                    width: "100%", padding: "14px",
+                    background: "var(--accent-color)", color: "#000",
+                    border: "none", ...monoLabel(11, "#000"),
+                    fontWeight: 900, cursor: "pointer",
+                    borderRadius: "var(--radius)",
+                    fontSize: 13, letterSpacing: "0.15em",
+                    transition: "var(--transition)",
+                  }}
+
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.01)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                >
+                  {actionLoading ? "STARTING SESSION..." : ((stats?.totalSessionsEver ?? 0) === 0 ? "START FIRST SESSION →" : "START NEW SESSION →")}
+                </button>
+              </div>
+            )}
+
+            {/* Active session: show exercise cards */}
+            {session?.isActive && (
+              <div>
+                {/* Session header bar */}
+                <div style={{
+                  display: "flex", justifyContent: "space-between",
+                  alignItems: "center", marginBottom: 14,
+                }}>
+                  <span style={monoLabel(9)}>
+                    {session.name} — {session.logs.length} exercise{session.logs.length !== 1 ? "s" : ""}
+                  </span>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={toggleTimer}
+                      style={{
+                        background: "transparent",
+                        border: `1px solid var(--border)`,
+                        color: showRestTimer ? "var(--accent-color)" : "var(--text-ghost)", padding: "4px 12px",
+                        ...monoLabel(9, showRestTimer ? "var(--accent-color)" : "var(--text-ghost)"),
+                        cursor: "pointer",
+                        borderRadius: "var(--radius)",
+                        transition: "var(--transition)",
+                      }}
+                    >
+                      {showRestTimer ? "TIMER ON" : "TIMER OFF"}
+                    </button>
+                    <button
+                      onClick={() => setIsLibraryOpen(true)}
+                      style={{
+                        background: "transparent",
+                        border: `1px solid var(--border)`,
+                        color: "var(--accent-color)", padding: "4px 12px",
+                        ...monoLabel(9, "var(--accent-color)"),
+                        cursor: "pointer",
+                        borderRadius: "var(--radius)",
+                        display: "flex", alignItems: "center", gap: 4,
+                        transition: "var(--transition)",
+                      }}
+                    >
+                      <PlusIcon /> Add Exercise
+                    </button>
+                  </div>
+                </div>
+
+                {/* Empty session state */}
+                {session.logs.length === 0 && (
+                  <div style={{
+                    border: `1px dashed var(--border)`,
+                    padding: "32px", textAlign: "center",
+                    borderRadius: "var(--radius)"
+                  }}>
+                    <p style={monoLabel(11, "var(--text-secondary)")}>No exercises yet</p>
+                    <p style={{ ...monoLabel(9), marginTop: 6 }}>
+                      Click &quot;+ Add Exercise&quot; to pick from the library
+                    </p>
+                  </div>
+                )}
+
+                {/* One ExerciseCard per workout_log row */}
+                {session.logs
+                  .sort((a, b) => a.orderIndex - b.orderIndex)
+                  .map((log) => (
+                    <ExerciseCard
+                      key={log.id}
+                      log={log}
+                      onRemove={() => handleRemoveExercise(log.id)}
+                      onEdit={(logId) => {
+                        setSwapTargetLogId(logId);
+                        setIsLibraryOpen(true);
+                      }}
+                      showTimer={showRestTimer}
+                    />
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
+            TAB: LIBRARY
+            Browse the full exercise database.
+        ══════════════════════════════════════════════════════ */}
+        {activeTab === "library" && (
+          <div>
+            <ExerciseLibraryModal
+              onSelect={async (id) => {
+                if (session?.isActive) {
+                  await handleAddExercise(id);
+                  setActiveTab("logger"); // jump to logger after adding
+                }
+              }}
+              onClose={() => setActiveTab(session?.isActive ? "logger" : "dashboard")}
+            />
+          </div>
+        )}
+
+      </main>
+
+      {/* Background grid overlay — the subtle trellis pattern */}
+      {/* To remove it: delete this div */}
+      <div style={{
+        position: "fixed", inset: 0, pointerEvents: "none",
+        opacity: 0.03, zIndex: -1,
+        backgroundImage: "linear-gradient(to right,#808080 1px,transparent 1px),linear-gradient(to bottom,#808080 1px,transparent 1px)",
+        backgroundSize: "40px 40px",
+      }} />
+
+      {/* Previous Sessions Modal */}
+      {showPreviousSessions && (
+        <PreviousSessionsModal
+          sessions={previousSessions}
+          loading={previousSessionsLoading}
+          onClose={() => setShowPreviousSessions(false)}
+          onDelete={handleDeleteSession}
+        />
+      )}
+
+      {/* Exercise Library Modal */}
+      {isLibraryOpen && (
+        <ExerciseLibraryModal
+          onSelect={async (id) => {
+            await handleAddExercise(id);
+            setActiveTab("logger");
+          }}
+          onClose={() => {
+            setIsLibraryOpen(false);
+            setSwapTargetLogId(null);
+          }}
+          title={swapTargetLogId ? "Change Exercise" : "Add Exercise"}
+        />
+      )}
+    </div>
+  );
+}

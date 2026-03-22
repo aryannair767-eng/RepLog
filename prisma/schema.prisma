@@ -1,0 +1,105 @@
+// ============================================================
+// RepLog — Prisma Schema
+// These model names match your exact Supabase table names.
+// If you rename a table in Supabase, update the @@map() line
+// below — NOT the model name (the model name is what your
+// TypeScript code uses).
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooled connection (for queries)
+  directUrl = env("DIRECT_URL")     // direct connection (for migrations)
+}
+
+// ── USERS ────────────────────────────────────────────────────
+// One user can have many workout sessions.
+model User {
+  id           String           @id @default(cuid())
+  name         String           @default("")
+  email        String           @unique
+  passwordHash String
+  createdAt    DateTime         @default(now())
+
+  sessions     WorkoutSession[]
+  exercises    Exercise[]       // the exercises this user created
+
+  @@map("users") // <-- maps to the "users" table in Supabase
+}
+
+// ── EXERCISES ────────────────────────────────────────────────
+// A library of movements. Seeded once, never changes often.
+model Exercise {
+  id              String       @id @default(cuid())
+  name            String
+  primaryMuscle   String
+  secondaryMuscle String?      // nullable — isolation lifts may not have one
+  mechanics       String       // "Compound" or "Isolation"
+  userId          String?      // Which user created it (if personal custom)
+  user            User?        @relation(fields: [userId], references: [id])
+
+  logs            WorkoutLog[]
+
+  @@index([primaryMuscle])
+  @@unique([name, userId])
+  @@map("exercises")
+}
+
+// ── WORKOUT SESSIONS ─────────────────────────────────────────
+// One session = one gym visit. Belongs to a user.
+model WorkoutSession {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  startTime DateTime     @default(now())
+  endTime   DateTime?    // null while session is still active
+  isActive  Boolean      @default(true)
+
+  logs      WorkoutLog[]
+
+  @@index([userId])
+  @@index([isActive])
+  @@map("workout_sessions")
+}
+
+// ── WORKOUT LOGS ─────────────────────────────────────────────
+// A "slot" for one exercise inside a session.
+// e.g. "Barbell Squat" inside "Monday Push".
+model WorkoutLog {
+  id         String         @id @default(cuid())
+  sessionId  String
+  session    WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise       @relation(fields: [exerciseId], references: [id])
+  orderIndex Int            @default(0) // display order within the session
+
+  sets       SetLog[]
+
+  @@index([sessionId])
+  @@map("workout_logs")
+}
+
+// ── SET LOGS ─────────────────────────────────────────────────
+// One logged set: weight, reps, effort, completion.
+// This is the core data row for every rep you ever do.
+model SetLog {
+  id           String     @id @default(cuid())
+  workoutLogId String
+  workoutLog   WorkoutLog @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
+  setNumber    Int
+  weight       Decimal    @db.Decimal(6, 2) // e.g. 102.50 kg
+  reps         Int
+  rpe          Float      // Rate of Perceived Exertion: 1–10 (supports decimals)
+  rir          Int        // Reps in Reserve: 0–10
+  isCompleted  Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([workoutLogId])
+  @@map("set_logs")
+}
