@@ -65,6 +65,15 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       ? loggedRpeSets.reduce((sum, s) => sum + s.rpe, 0) / loggedRpeSets.length
       : 0;
 
+  // ── Average RIR ────────────────────────────────────────────
+  // Include RIR=0 (trained to failure) as a valid data point.
+  // Only exclude sets where user never entered an RIR (we use null check via DB default).
+  const loggedRirSets = thisWeekSets.filter(s => s.rir !== null && s.rir !== undefined);
+  const avgRir =
+    loggedRirSets.length > 0
+      ? loggedRirSets.reduce((sum, s) => sum + s.rir, 0) / loggedRirSets.length
+      : 0;
+
   // ── Total volume in kg (weight × reps per set, summed) ─────
   const weeklyVolumeKg = thisWeekSets.reduce(
     (sum, s) => sum + Number(s.weight) * s.reps,
@@ -144,6 +153,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   return {
     avgRpe: Math.round(avgRpe * 10) / 10, // round to 1 decimal
+    avgRir: Math.round(avgRir * 10) / 10,
     weeklyVolumeKg: Math.round(weeklyVolumeKg),
     weeklyFrequency,
     totalSetsThisWeek: thisWeekSets.length,
@@ -293,4 +303,79 @@ export async function getWeeklyMuscleFrequency() {
   return Object.entries(muscleDays)
     .sort(([, a], [, b]) => b.size - a.size)
     .map(([muscle, days]) => ({ muscle, frequency: days.size }));
+}
+
+// ── getAvgRirByMuscle ──────────────────────────────────────────
+// Returns all muscles with their average RIR: { muscle, avgRir, totalSets }[]
+export async function getAvgRirByMuscle() {
+  const userId = await getAuthUserId();
+
+  const allCompletedSets = await prisma.setLog.findMany({
+    where: {
+      isCompleted: true,
+      workoutLog: { session: { userId } },
+    },
+    include: {
+      workoutLog: {
+        include: {
+          exercise: { select: { primaryMuscle: true } },
+        },
+      },
+    },
+  });
+
+  const muscleData: Record<string, { totalRir: number; count: number }> = {};
+  for (const s of allCompletedSets) {
+    const muscle = s.workoutLog.exercise.primaryMuscle;
+    if (!muscleData[muscle]) muscleData[muscle] = { totalRir: 0, count: 0 };
+    muscleData[muscle].totalRir += s.rir;
+    muscleData[muscle].count += 1;
+  }
+
+  return Object.entries(muscleData)
+    .map(([muscle, { totalRir, count }]) => ({
+      muscle,
+      avgRir: Math.round((totalRir / count) * 10) / 10,
+      totalSets: count,
+    }))
+    .sort((a, b) => a.avgRir - b.avgRir); // lowest RIR first (hardest trained)
+}
+
+// ── getExerciseRirForMuscle ────────────────────────────────────
+// Drill-down: returns exercises for a specific muscle with their avg RIR.
+export async function getExerciseRirForMuscle(muscle: string) {
+  const userId = await getAuthUserId();
+
+  const sets = await prisma.setLog.findMany({
+    where: {
+      isCompleted: true,
+      workoutLog: {
+        session: { userId },
+        exercise: { primaryMuscle: { equals: muscle, mode: "insensitive" } },
+      },
+    },
+    include: {
+      workoutLog: {
+        include: {
+          exercise: { select: { name: true, primaryMuscle: true } },
+        },
+      },
+    },
+  });
+
+  const exerciseData: Record<string, { totalRir: number; count: number }> = {};
+  for (const s of sets) {
+    const name = s.workoutLog.exercise.name;
+    if (!exerciseData[name]) exerciseData[name] = { totalRir: 0, count: 0 };
+    exerciseData[name].totalRir += s.rir;
+    exerciseData[name].count += 1;
+  }
+
+  return Object.entries(exerciseData)
+    .map(([exerciseName, { totalRir, count }]) => ({
+      exerciseName,
+      avgRir: Math.round((totalRir / count) * 10) / 10,
+      totalSets: count,
+    }))
+    .sort((a, b) => a.avgRir - b.avgRir);
 }

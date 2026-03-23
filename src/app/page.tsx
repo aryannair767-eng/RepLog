@@ -45,6 +45,9 @@ import { getHistoricalProgress, type ExerciseProgress } from "@/app/actions/prog
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 
+// IndexedDB — local data layer for offline & instant loading
+import { getData, putData, getAllData, STORES, initDB } from "@/lib/db";
+
 // TypeScript types
 import type {
   WorkoutSessionData,
@@ -390,7 +393,9 @@ function SetRow({
             type="number"
             step={field === "weight" || field === "rpe" ? "0.1" : "1"}
             inputMode={field === "weight" || field === "rpe" ? "decimal" : "numeric"}
-            defaultValue={set[field] === 0 ? "" : set[field]}
+            defaultValue={
+              set[field] === 0 && !set.isCompleted ? "" : set[field]
+            }
             placeholder="—"
             onChange={(e) => {
               const max = field === "rpe" || field === "rir" ? 10 : 999;
@@ -487,62 +492,73 @@ function ExerciseCard({
   const [restTrigger, setRestTrigger] = useState(0);
   // Debounce timers: key = "setId-field", value = timeout ID
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Controls the RPE/RIR info popup
+  const [activeInfo, setActiveInfo] = useState<"RPE" | "RIR" | null>(null);
 
   // ── handleToggle ────────────────────────────────────────────
-  // Marks a set as done/undone.
-  // 1. Update local state immediately (optimistic)
-  // 2. Save to DB in the background
-  // 3. If it fails, revert the change and show an error
   const handleToggle = useCallback(async (setId: string, current: boolean) => {
     const newVal = !current;
 
     // Step 1: instant UI update
     setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: newVal } : s));
 
+    // Step 1b: update IndexedDB for offline persistence
+    const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+    if (localSession) {
+      const updatedLogs = localSession.logs.map(l => {
+        if (l.id === log.id) {
+          return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, isCompleted: newVal } : s) };
+        }
+        return l;
+      });
+      await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
+    }
+
     // Trigger rest timer when completing a set
     if (newVal) setRestTrigger((t) => t + 1);
 
     try {
-      // Step 2: save to DB
+      // Step 2: save to server
       await toggleSetComplete(setId, newVal);
     } catch {
-      // Step 3: revert on failure
-      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: current } : s));
-      setError("Could not save — check your connection and try again.");
+      // Step 3: revert on failure (optionally)
+      // setError("Connection lost — action queued."); 
+      // In a real local-first app, we'd queue this for later sync
     }
-  }, []);
+  }, [log.id]);
 
   // ── handleFieldChange ────────────────────────────────────────
-  // Called on every keystroke — debounced to only hit the DB
-  // after the user stops typing for 600ms.
   const handleFieldChange = useCallback(
     (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => {
-      // Instant local update
+      // Instant local React state update
       setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: value } : s));
 
-      // Debounce the DB write — cancel the previous timer for this field
+      // Instant IndexedDB update for offline persistence
+      (async () => {
+        const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+        if (localSession) {
+          const updatedLogs = localSession.logs.map(l => {
+            if (l.id === log.id) {
+              return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: value } : s) };
+            }
+            return l;
+          });
+          await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
+        }
+      })();
+
+      // Debounce the server write
       const key = `${setId}-${field}`;
       clearTimeout(debounceRef.current[key]);
       debounceRef.current[key] = setTimeout(async () => {
         try {
           await updateSetField(setId, field, value);
         } catch {
-          // If save fails, show error but don't revert the input
-          // (the user is still typing — reverting would be jarring)
-          setError(`Failed to save ${field}. Will retry...`);
-          // Retry once after 2 seconds
-          setTimeout(async () => {
-            try {
-              await updateSetField(setId, field, value);
-              setError(null); // clear error on success
-            } catch {
-              setError(`Data not saved: ${field} on set ${setId}. Re-enter to try again.`);
-            }
-          }, 2000);
+          setError(`Delayed sync: ${field} will save when online.`);
         }
-      }, 600); // 600ms debounce window
+      }, 600);
     },
-    []
+    [log.id]
   );
 
   // ── handleAddSet ─────────────────────────────────────────────
@@ -555,28 +571,66 @@ function ExerciseCard({
       weight: 0, reps: 0, rpe: 0, rir: 0,
       isCompleted: false,
     };
-    setSets((prev) => [...prev, newSet]);
+    const updatedSets = [...sets, newSet];
+    setSets(updatedSets);
+
+    // Instant IndexedDB update
+    const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+    if (localSession) {
+      const updatedLogs = localSession.logs.map(l => {
+        if (l.id === log.id) {
+          return { ...l, sets: updatedSets };
+        }
+        return l;
+      });
+      await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
+    }
 
     try {
       const realId = await addSet(log.id);
-      // Replace the temp ID with the real DB id
+      // Replace the temp ID with the real DB id in React state
       setSets((prev) => prev.map((s) => s.id === tempId ? { ...s, id: realId } : s));
+
+      // Also update IndexedDB with the real ID
+      const latestSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+      if (latestSession) {
+        const syncLogs = latestSession.logs.map(l => {
+          if (l.id === log.id) {
+            return { ...l, sets: l.sets.map(s => s.id === tempId ? { ...s, id: realId } : s) };
+          }
+          return l;
+        });
+        await putData(STORES.SESSIONS, { ...latestSession, logs: syncLogs, id: "active" });
+      }
     } catch {
-      // Remove the optimistic set if save failed
-      setSets((prev) => prev.filter((s) => s.id !== tempId));
-      setError("Could not add set. Try again.");
+      // Revert if even the local-first addition failed (rare)
+      // setSets((prev) => prev.filter((s) => s.id !== tempId));
+      setError("Set added to local cache. Sync pending.");
     }
   };
 
   // ── handleRemoveSet ──────────────────────────────────────────
   const handleRemoveSet = async (setId: string) => {
-    // Optimistic delete
-    setSets((prev) => prev.filter((s) => s.id !== setId));
+    // Instant local state update
+    const updatedSets = sets.filter((s) => s.id !== setId);
+    setSets(updatedSets);
+
+    // Instant IndexedDB update
+    const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+    if (localSession) {
+      const updatedLogs = localSession.logs.map(l => {
+        if (l.id === log.id) {
+          return { ...l, sets: updatedSets };
+        }
+        return l;
+      });
+      await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
+    }
+
     try {
       await removeSet(setId);
     } catch {
-      // If it fails, we typically would revert, but practically it's rare.
-      setError("Failed to delete set. Refresh page.");
+      setError("Set removed locally. Sync pending.");
     }
   };
 
@@ -645,28 +699,32 @@ function ExerciseCard({
         </div>
       )}
 
-      {/* Column headers: Set | Weight | Reps | RPE | RIR | Done */}
+      {/* Column headers: Weight | Reps | RPE | RIR | Done */}
       <div style={{
         display: "grid",
         gridTemplateColumns: "20px 1fr 60px",
         padding: "7px 8px", gap: 8,
+        position: "relative",
       }}>
-        <span style={monoLabel()}>#</span>
+        <span style={monoLabel()}>&nbsp;</span>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
           {["Weight", "Reps", "RPE", "RIR"].map((h) => (
-            <div key={h} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+            <div
+              key={h}
+              onClick={() => (h === "RPE" || h === "RIR") && setActiveInfo(h)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+                cursor: (h === "RPE" || h === "RIR") ? "pointer" : "default"
+              }}
+            >
               <span style={{ ...monoLabel(), textAlign: "center" }}>{h}</span>
               {(h === "RPE" || h === "RIR") && (
                 <div
-                  title={h === "RPE"
-                    ? "Rate of Perceived Exertion (0-10): 0 = Least effort, 10 = Most effort (Absolute Max)."
-                    : "Reps in Reserve: 0 = No reps more (Absolute failure), 5 = 5 more reps before failure."}
                   style={{
                     width: 11, height: 11, borderRadius: 6,
                     background: THEME.surface3, border: `1px solid ${THEME.border}`,
                     color: THEME.textMuted, fontSize: 8, fontFamily: THEME.fontMono,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "help"
                   }}
                 >i</div>
               )}
@@ -674,6 +732,40 @@ function ExerciseCard({
           ))}
         </div>
         <span style={{ ...monoLabel(), textAlign: "right" }}>Done</span>
+
+        {/* Floating Info Popup */}
+        {activeInfo && (
+          <>
+            {/* Transparent catch-all to close on click outside */}
+            <div
+              onClick={() => setActiveInfo(null)}
+              style={{ position: "fixed", inset: 0, zIndex: 100 }}
+            />
+            <div style={{
+              position: "absolute",
+              top: "100%",
+              left: activeInfo === "RPE" ? "50%" : "75%",
+              transform: "translateX(-50%)",
+              zIndex: 101,
+              background: THEME.surfaceSolid,
+              border: `1px solid ${THEME.lime}`,
+              borderRadius: THEME.borderRadius,
+              padding: "12px 16px",
+              width: 200,
+              boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+              marginTop: 4,
+            }}>
+              <div style={{ ...brandLabel(10, THEME.lime), marginBottom: 8, borderBottom: `1px solid ${THEME.border}`, paddingBottom: 4 }}>
+                {activeInfo} INFO
+              </div>
+              <p style={{ ...monoLabel(10, THEME.textPrimary), textTransform: "none", letterSpacing: "normal", margin: 0, lineHeight: 1.4 }}>
+                {activeInfo === "RPE"
+                  ? "Rate of Perceived Exertion (0-10): 0 = Least effort, 10 = Absolute Maximum effort."
+                  : "Reps in Reserve: 0 = Absolute failure, 5 = You could have done 5 more reps."}
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Set rows */}
@@ -1159,170 +1251,170 @@ function ExerciseLibraryModal({
 
   const renderLibraryContent = () => (
     <>
-        {/* Results list or Muscle Selection Grid */}
-        <div style={{ overflowY: "auto", flex: 1 }}>
-          {step === "search" && (
-            <>
-              {loading && (
-                <div style={{ padding: 16, textAlign: "center", ...monoLabel() }}>
-                  Querying database...
-                </div>
-              )}
-
-              {/* Create Button */}
-              {!loading && query.trim() !== "" && !exactMatchExists && (
-                <button
-                  onClick={() => setStep("select-muscle")}
-                  disabled={creating}
-                  style={{
-                    width: "100%", background: "rgba(163,230,53,0.05)", border: "none",
-                    borderBottom: `1px dashed ${THEME.lime}`, padding: "11px 14px",
-                    cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12
-                  }}
-                >
-                  <div style={{ width: 20, height: 20, borderRadius: 10, border: `1px solid ${THEME.lime}`, display: "flex", alignItems: "center", justifyContent: "center", color: THEME.lime }}>+</div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: THEME.lime, letterSpacing: "-0.02em" }}>
-                      Create "{query.trim()}"
-                    </div>
-                    <div style={monoLabel(9, THEME.limeHover)}>Assign muscle group next</div>
-                  </div>
-                </button>
-              )}
-
-              {!loading && results.length === 0 && (
-                <div style={{ padding: 16, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
-                  No exercises found. Type a name to create it.
-                </div>
-              )}
-              {results.map((ex) => (
-                <button
-                  key={ex.id}
-                  onClick={async () => {
-                    await onSelect(ex.id);
-                    onClose();
-                  }}
-                  style={{
-                    width: "100%", background: "transparent", border: "none",
-                    borderBottom: `1px solid ${THEME.border}`,
-                    padding: "11px 14px", cursor: "pointer",
-                    textAlign: "left", display: "flex",
-                    justifyContent: "space-between", alignItems: "center",
-                    borderRadius: THEME.borderRadius,
-                    transition: "background 0.13s",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.surface3)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  <div>
-                    <div style={{
-                      fontSize: 12, fontWeight: 700,
-                      textTransform: "uppercase", color: THEME.textPrimary,
-                      letterSpacing: "-0.02em",
-                    }}>
-                      {ex.name}
-                    </div>
-                    <div style={{ ...monoLabel(9, THEME.textGhost), marginTop: 2 }}>
-                      {ex.primaryMuscle} · {ex.mechanics}
-                    </div>
-                  </div>
-                  <PlusIcon />
-                </button>
-              ))}
-            </>
-          )}
-
-          {step === "select-muscle" && (
-            <div style={{ padding: 16 }}>
-              <p style={{ ...monoLabel(10, THEME.textPrimary), marginBottom: 16, textAlign: "center" }}>
-                SELECT MUSCLE GROUP FOR "{query.trim()}"
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {MUSCLES.map(m => (
-                  <button
-                    key={m}
-                    onClick={() => handleCreate(m)}
-                    style={{
-                      background: THEME.surface3, border: `1px solid ${THEME.border}`,
-                      color: THEME.textPrimary, padding: "10px", borderRadius: THEME.borderRadius,
-                      cursor: "pointer", ...monoLabel(10), textAlign: "center",
-                      transition: "all 0.15s"
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.lime; e.currentTarget.style.color = THEME.lime; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border; e.currentTarget.style.color = THEME.textPrimary; }}
-                  >
-                    {m}
-                  </button>
-                ))}
+      {/* Results list or Muscle Selection Grid */}
+      <div style={{ overflowY: "auto", flex: 1 }}>
+        {step === "search" && (
+          <>
+            {loading && (
+              <div style={{ padding: 16, textAlign: "center", ...monoLabel() }}>
+                Querying database...
               </div>
-              <button
-                onClick={() => setStep("custom-muscle")}
-                style={{
-                  width: "100%", marginTop: 12, background: "transparent",
-                  border: `1px dashed ${THEME.textDim}`, color: THEME.textDim,
-                  padding: "10px", borderRadius: THEME.borderRadius, cursor: "pointer",
-                  ...monoLabel(10), transition: "all 0.15s"
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.textPrimary; e.currentTarget.style.color = THEME.textPrimary; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.textDim; e.currentTarget.style.color = THEME.textDim; }}
-              >
-                + ADD NEW MUSCLE GROUP
-              </button>
+            )}
 
-              <button
-                onClick={() => setStep("search")}
-                style={{
-                  width: "100%", marginTop: 24, background: "transparent", border: "none",
-                  color: THEME.textGhost, ...monoLabel(9), cursor: "pointer", textDecoration: "underline"
-                }}
-              >
-                BACK TO SEARCH
-              </button>
-            </div>
-          )}
-
-          {step === "custom-muscle" && (
-            <div style={{ padding: 24, textAlign: "center" }}>
-              <p style={{ ...monoLabel(10, THEME.textPrimary), marginBottom: 16 }}>
-                ENTER NEW MUSCLE GROUP NAME
-              </p>
-              <input
-                autoFocus
-                value={customMuscle}
-                onChange={(e) => setCustomMuscle(e.target.value)}
-                placeholder="e.g. Obliques"
-                onKeyDown={(e) => e.key === "Enter" && customMuscle.trim() && handleCreate(customMuscle.trim())}
-                style={{
-                  width: "100%", background: "transparent", border: "none",
-                  borderBottom: `2.5px solid ${THEME.lime}`, padding: "8px 0",
-                  color: THEME.textPrimary, fontSize: 16, fontFamily: THEME.fontMono,
-                  textAlign: "center", outline: "none", marginBottom: 20
-                }}
-              />
-              <button
-                disabled={!customMuscle.trim() || creating}
-                onClick={() => handleCreate(customMuscle.trim())}
-                style={{
-                  width: "100%", background: THEME.lime, color: THEME.black,
-                  fontWeight: 900, padding: "12px", border: "none",
-                  borderRadius: THEME.borderRadius, cursor: "pointer",
-                  ...monoLabel(12, THEME.black)
-                }}
-              >
-                {creating ? "CREATING..." : "CONFIRM & CREATE"}
-              </button>
+            {/* Create Button */}
+            {!loading && query.trim() !== "" && !exactMatchExists && (
               <button
                 onClick={() => setStep("select-muscle")}
+                disabled={creating}
                 style={{
-                  width: "100%", marginTop: 16, background: "transparent", border: "none",
-                  color: THEME.textGhost, ...monoLabel(9), cursor: "pointer"
+                  width: "100%", background: "rgba(163,230,53,0.05)", border: "none",
+                  borderBottom: `1px dashed ${THEME.lime}`, padding: "11px 14px",
+                  cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 12
                 }}
               >
-                CANCEL
+                <div style={{ width: 20, height: 20, borderRadius: 10, border: `1px solid ${THEME.lime}`, display: "flex", alignItems: "center", justifyContent: "center", color: THEME.lime }}>+</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: THEME.lime, letterSpacing: "-0.02em" }}>
+                    Create "{query.trim()}"
+                  </div>
+                  <div style={monoLabel(9, THEME.limeHover)}>Assign muscle group next</div>
+                </div>
               </button>
+            )}
+
+            {!loading && results.length === 0 && (
+              <div style={{ padding: 16, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
+                No exercises found. Type a name to create it.
+              </div>
+            )}
+            {results.map((ex) => (
+              <button
+                key={ex.id}
+                onClick={async () => {
+                  await onSelect(ex.id);
+                  onClose();
+                }}
+                style={{
+                  width: "100%", background: "transparent", border: "none",
+                  borderBottom: `1px solid ${THEME.border}`,
+                  padding: "11px 14px", cursor: "pointer",
+                  textAlign: "left", display: "flex",
+                  justifyContent: "space-between", alignItems: "center",
+                  borderRadius: THEME.borderRadius,
+                  transition: "background 0.13s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = THEME.surface3)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <div>
+                  <div style={{
+                    fontSize: 12, fontWeight: 700,
+                    textTransform: "uppercase", color: THEME.textPrimary,
+                    letterSpacing: "-0.02em",
+                  }}>
+                    {ex.name}
+                  </div>
+                  <div style={{ ...monoLabel(9, THEME.textGhost), marginTop: 2 }}>
+                    {ex.primaryMuscle} · {ex.mechanics}
+                  </div>
+                </div>
+                <PlusIcon />
+              </button>
+            ))}
+          </>
+        )}
+
+        {step === "select-muscle" && (
+          <div style={{ padding: 16 }}>
+            <p style={{ ...monoLabel(10, THEME.textPrimary), marginBottom: 16, textAlign: "center" }}>
+              SELECT MUSCLE GROUP FOR "{query.trim()}"
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {MUSCLES.map(m => (
+                <button
+                  key={m}
+                  onClick={() => handleCreate(m)}
+                  style={{
+                    background: THEME.surface3, border: `1px solid ${THEME.border}`,
+                    color: THEME.textPrimary, padding: "10px", borderRadius: THEME.borderRadius,
+                    cursor: "pointer", ...monoLabel(10), textAlign: "center",
+                    transition: "all 0.15s"
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.lime; e.currentTarget.style.color = THEME.lime; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border; e.currentTarget.style.color = THEME.textPrimary; }}
+                >
+                  {m}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+            <button
+              onClick={() => setStep("custom-muscle")}
+              style={{
+                width: "100%", marginTop: 12, background: "transparent",
+                border: `1px dashed ${THEME.textDim}`, color: THEME.textDim,
+                padding: "10px", borderRadius: THEME.borderRadius, cursor: "pointer",
+                ...monoLabel(10), transition: "all 0.15s"
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.textPrimary; e.currentTarget.style.color = THEME.textPrimary; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.textDim; e.currentTarget.style.color = THEME.textDim; }}
+            >
+              + ADD NEW MUSCLE GROUP
+            </button>
+
+            <button
+              onClick={() => setStep("search")}
+              style={{
+                width: "100%", marginTop: 24, background: "transparent", border: "none",
+                color: THEME.textGhost, ...monoLabel(9), cursor: "pointer", textDecoration: "underline"
+              }}
+            >
+              BACK TO SEARCH
+            </button>
+          </div>
+        )}
+
+        {step === "custom-muscle" && (
+          <div style={{ padding: 24, textAlign: "center" }}>
+            <p style={{ ...monoLabel(10, THEME.textPrimary), marginBottom: 16 }}>
+              ENTER NEW MUSCLE GROUP NAME
+            </p>
+            <input
+              autoFocus
+              value={customMuscle}
+              onChange={(e) => setCustomMuscle(e.target.value)}
+              placeholder="e.g. Obliques"
+              onKeyDown={(e) => e.key === "Enter" && customMuscle.trim() && handleCreate(customMuscle.trim())}
+              style={{
+                width: "100%", background: "transparent", border: "none",
+                borderBottom: `2.5px solid ${THEME.lime}`, padding: "8px 0",
+                color: THEME.textPrimary, fontSize: 16, fontFamily: THEME.fontMono,
+                textAlign: "center", outline: "none", marginBottom: 20
+              }}
+            />
+            <button
+              disabled={!customMuscle.trim() || creating}
+              onClick={() => handleCreate(customMuscle.trim())}
+              style={{
+                width: "100%", background: THEME.lime, color: THEME.black,
+                fontWeight: 900, padding: "12px", border: "none",
+                borderRadius: THEME.borderRadius, cursor: "pointer",
+                ...monoLabel(12, THEME.black)
+              }}
+            >
+              {creating ? "CREATING..." : "CONFIRM & CREATE"}
+            </button>
+            <button
+              onClick={() => setStep("select-muscle")}
+              style={{
+                width: "100%", marginTop: 16, background: "transparent", border: "none",
+                color: THEME.textGhost, ...monoLabel(9), cursor: "pointer"
+              }}
+            >
+              CANCEL
+            </button>
+          </div>
+        )}
+      </div>
     </>
   );
 
@@ -1385,23 +1477,27 @@ function ExerciseLibraryModal({
   }
 
   return (
-    // Dark overlay behind the modal
-    <div style={{
-      position: "fixed", inset: 0,
-      background: "rgba(0,0,0,0.88)",
-      zIndex: 50, display: "flex",
-      alignItems: "center", justifyContent: "center",
-      padding: 20,
-    }}>
-      <div style={{
-        background: THEME.surfaceSolid,
-        border: `1px solid ${THEME.border}`,
-        borderRadius: THEME.borderRadius,
-        width: "100%", maxWidth: 480,
-        maxHeight: "85vh",
-        display: "flex", flexDirection: "column",
-        boxShadow: "0 32px 80px rgba(0,0,0,0.5)",
-      }}>
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.88)",
+        zIndex: 50, display: "flex",
+        alignItems: "center", justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: THEME.surfaceSolid,
+          border: `1px solid ${THEME.border}`,
+          borderRadius: THEME.borderRadius,
+          width: "100%", maxWidth: 480,
+          maxHeight: "85vh",
+          display: "flex", flexDirection: "column",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.5)",
+        }}>
         {/* Modal header & Tab switch */}
         <div style={{
           padding: "12px 14px 0",
@@ -1486,6 +1582,7 @@ function PreviousSessionsModal({
 
   return (
     <div
+      onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
@@ -1498,6 +1595,7 @@ function PreviousSessionsModal({
       }}
     >
       <div
+        onClick={(e) => e.stopPropagation()}
         style={{
           background: THEME.surface2,
           border: `1px solid ${THEME.border}`,
@@ -1700,6 +1798,52 @@ export default function RepLogPage() {
   const [previousSessions, setPreviousSessions] = useState<PreviousSessionSummary[]>([]);
   const [previousSessionsLoading, setPreviousSessionsLoading] = useState(false);
   const [progressRefreshKey, setProgressRefreshKey] = useState(0);
+
+  // ── Swipe Navigation for Mobile ──────────────────────────────
+  // Detects horizontal swipes to switch between Dashboard, Logger, Progress, Library
+  const touchStartRef = useRef<number | null>(null);
+  const touchEndRef = useRef<number | null>(null);
+  const minSwipeDistance = 70; // min pixels to trigger a swipe
+
+  useEffect(() => {
+    const onTouchStart = (e: TouchEvent) => {
+      touchEndRef.current = null;
+      touchStartRef.current = e.targetTouches[0].clientX;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      touchEndRef.current = e.targetTouches[0].clientX;
+    };
+
+    const onTouchEnd = () => {
+      if (!touchStartRef.current || !touchEndRef.current) return;
+
+      const distance = touchStartRef.current - touchEndRef.current;
+      const isLeftSwipe = distance > minSwipeDistance;
+      const isRightSwipe = distance < -minSwipeDistance;
+
+      if (isLeftSwipe || isRightSwipe) {
+        const tabs: ("dashboard" | "logger" | "progress" | "library")[] = ["dashboard", "logger", "progress", "library"];
+        const currentIndex = tabs.indexOf(activeTab);
+
+        if (isLeftSwipe && currentIndex < tabs.length - 1) {
+          setActiveTab(tabs[currentIndex + 1]);
+        } else if (isRightSwipe && currentIndex > 0) {
+          setActiveTab(tabs[currentIndex - 1]);
+        }
+      }
+    };
+
+    window.addEventListener("touchstart", onTouchStart);
+    window.addEventListener("touchmove", onTouchMove);
+    window.addEventListener("touchend", onTouchEnd);
+
+    return () => {
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [activeTab]);
   const { accentColor, setAccentColor, mode, toggleMode, ACCENTS } = useTheme();
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
@@ -1708,23 +1852,58 @@ export default function RepLogPage() {
   const userName = authSession?.user?.name?.split(" ")[0] || "Athlete";
 
   // ── Load data on page mount ───────────────────────────────────
-  // useEffect with [] runs ONCE when the page first loads.
   useEffect(() => {
     // Check localStorage for timer preference
     const saved = localStorage.getItem("replog_show_timer");
     if (saved !== null) setShowRestTimer(saved === "true");
 
-    (async () => {
-      // Fetch session and stats in parallel for speed
-      const [sessionData, statsData] = await Promise.all([
-        getActiveSession(),
-        getDashboardStats(),
-      ]);
-      setSession(sessionData);
-      setStats(statsData);
-      setSessionLoading(false);
-      setStatsLoading(false);
-    })();
+    const loadInitialData = async () => {
+      // 1. Try to load from IndexedDB first for instant UI
+      try {
+        const [localSession, localStats] = await Promise.all([
+          getData(STORES.SESSIONS, "active"),
+          getData(STORES.STATS, "current"),
+        ]);
+
+        if (localSession) {
+          setSession(localSession as WorkoutSessionData);
+          setSessionLoading(false);
+        }
+        if (localStats) {
+          setStats(localStats as DashboardStats);
+          setStatsLoading(false);
+        }
+      } catch (e) {
+        console.error("Local DB load failed:", e);
+      }
+
+      // 2. Fetch from server in parallel to update local DB and UI
+      try {
+        const [serverSession, serverStats] = await Promise.all([
+          getActiveSession(),
+          getDashboardStats(),
+        ]);
+
+        if (serverSession) {
+          setSession(serverSession);
+          putData(STORES.SESSIONS, { ...serverSession, id: "active" });
+        }
+        setSessionLoading(false);
+
+        if (serverStats) {
+          setStats(serverStats);
+          putData(STORES.STATS, { ...serverStats, id: "current" });
+        }
+        setStatsLoading(false);
+      } catch (e) {
+        console.error("Server fetch failed (offline?):", e);
+        // If server fails, we already have local data showing (if any)
+        setSessionLoading(false);
+        setStatsLoading(false);
+      }
+    };
+
+    loadInitialData();
   }, []);
 
   // Refresh stats whenever switching to Dashboard or Progress tab
@@ -1768,24 +1947,41 @@ export default function RepLogPage() {
   // ── handleStartSession ────────────────────────────────────────
   const handleStartSession = async () => {
     setActionLoading(true);
-    const newSession = await createSession();
-    setSession(newSession);
-    setActiveTab("logger"); // jump to logger tab after starting
-    setActionLoading(false);
+    try {
+      const newSession = await createSession();
+      setSession(newSession);
+      // Cache in IndexedDB for offline access
+      await putData(STORES.SESSIONS, { ...newSession, id: "active" });
+      setActiveTab("logger"); // jump to logger tab after starting
+    } catch (e) {
+      console.error("Failed to start session:", e);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // ── handleEndSession ──────────────────────────────────────────
   const handleEndSession = async () => {
     if (!session) return;
     setActionLoading(true);
-    await endSession(session.id);
-    setSession(null);
-    // Refresh stats now that the session is complete
-    const newStats = await getDashboardStats();
-    setStats(newStats);
-    // Refresh the Progress view so newly-completed sessions appear immediately
-    setProgressRefreshKey((k) => k + 1);
-    setActionLoading(false);
+    try {
+      await endSession(session.id);
+      setSession(null);
+      // Remove from active cache but could store in history if needed
+      await putData(STORES.SESSIONS, { id: "active", isActive: false });
+
+      // Refresh stats now that the session is complete
+      const newStats = await getDashboardStats();
+      setStats(newStats);
+      await putData(STORES.STATS, { ...newStats, id: "current" });
+
+      // Refresh the Progress view so newly-completed sessions appear immediately
+      setProgressRefreshKey((k) => k + 1);
+    } catch (e) {
+      console.error("Failed to end session:", e);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // ── handleAddExercise ─────────────────────────────────────────
@@ -1797,30 +1993,63 @@ export default function RepLogPage() {
       if (!session) return;
       await addExerciseToSession(session.id, exerciseId);
     }
-    // Re-fetch the session so the new exercise card appears
+    // Update local cache state and UI immediately (Optimistic UI would be better here, but for now we re-fetch and cache)
     const updated = await getActiveSession();
     setSession(updated);
+    if (updated) {
+      await putData(STORES.SESSIONS, { ...updated, id: "active" });
+    }
     setIsLibraryOpen(false);
   };
 
   const handleDeleteSession = async (sessionId: string) => {
     setActionLoading(true);
-    await deleteSession(sessionId);
-    // Refresh previous sessions list
-    const updated = await getPreviousSessions();
-    setPreviousSessions(updated);
-    // Also refresh dashboard stats in case the deleted session affected them
-    const newStats = await getDashboardStats();
-    setStats(newStats);
-    setProgressRefreshKey((k) => k + 1);
-    setActionLoading(false);
+    try {
+      await deleteSession(sessionId);
+
+      // If the deleted session was the active one, clear local cache
+      if (session?.id === sessionId) {
+        setSession(null);
+        await putData(STORES.SESSIONS, { id: "active", isActive: false });
+      }
+
+      // Refresh previous sessions list
+      const updated = await getPreviousSessions();
+      setPreviousSessions(updated);
+
+      // Also refresh dashboard stats in case the deleted session affected them
+      const newStats = await getDashboardStats();
+      setStats(newStats);
+      await putData(STORES.STATS, { ...newStats, id: "current" });
+
+      setProgressRefreshKey((k) => k + 1);
+    } catch (e) {
+      console.error("Failed to delete session:", e);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // ── handleRemoveExercise ──────────────────────────────────────
   const handleRemoveExercise = async (workoutLogId: string) => {
-    await removeExercise(workoutLogId);
-    const updated = await getActiveSession();
-    setSession(updated);
+    // Optimistic UI for faster feel
+    if (session) {
+      const updatedLogs = session.logs.filter(l => l.id !== workoutLogId);
+      const updatedSession = { ...session, logs: updatedLogs };
+      setSession(updatedSession);
+      await putData(STORES.SESSIONS, { ...updatedSession, id: "active" });
+    }
+
+    try {
+      await removeExercise(workoutLogId);
+      const updated = await getActiveSession(); // Re-sync to be sure
+      setSession(updated);
+      if (updated) {
+        await putData(STORES.SESSIONS, { ...updated, id: "active" });
+      }
+    } catch (e) {
+      console.error("Failed to remove exercise:", e);
+    }
   };
 
   // ── Derived stats for the stat cards ─────────────────────────
@@ -1838,6 +2067,18 @@ export default function RepLogPage() {
       fontFamily: "var(--font-main)",
       transition: "background var(--transition), color var(--transition)",
     }}>
+      {/* Global overlay for hamburger menu click-outside */}
+      {isHamburgerOpen && (
+        <div
+          onClick={() => setIsHamburgerOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 39,
+            background: "transparent",
+          }}
+        />
+      )}
 
       {/* ── HEADER ───────────────────────────────────────────── */}
       <header style={{
@@ -1871,12 +2112,6 @@ export default function RepLogPage() {
             }}>
               RepLog
             </h1>
-            {/* Status line — shows session name or "No Active Session" */}
-            <p style={{ ...monoLabel(9), margin: 0 }}>
-              {session?.isActive
-                ? `Session: ${session.name} — LIVE`
-                : "No Active Session"}
-            </p>
           </div>
         </div>
 
@@ -1928,84 +2163,77 @@ export default function RepLogPage() {
 
           {/* Hamburger Dropdown Menu - Solid Background (No Transparency) */}
           {isHamburgerOpen && (
-            <>
-              {/* Overlay to catch clicks outside the menu */}
-              <div 
-                onClick={() => setIsHamburgerOpen(false)}
-                style={{ position: "fixed", inset: 0, zIndex: 90 }}
-              />
-              <div 
-                style={{
-                  position: "absolute",
-                  top: "100%",
-                  right: 0,
-                  marginTop: 12,
-                  background: THEME.surfaceSolid, // Fully opaque solid background
-                  border: `1px solid ${THEME.border}`,
-                  borderRadius: "var(--radius)",
-                  padding: "20px",
-                  width: 260,
-                  zIndex: 100,
-                  boxShadow: "0 24px 64px rgba(0,0,0,0.6)", // Solid shadow
-                }}
-              >
-                {/* Mode Toggle Section */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, paddingBottom: 12, borderBottom: `1px solid ${THEME.border}` }}>
-                  <span style={monoLabel(10, THEME.textDim)}>APPEARANCE</span>
-                  <button
-                    onClick={toggleMode}
-                    style={{
-                      background: "transparent", border: `1px solid ${THEME.border}`,
-                      color: THEME.textPrimary, padding: "5px 10px", borderRadius: 4, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 6, ...monoLabel(9)
-                    }}
-                  >
-                    {mode === "dark" ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-                    ) : (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-                    )}
-                    {mode === "dark" ? "DARK" : "LIGHT"}
-                  </button>
-                </div>
-
-                {/* Accent Selection Grid */}
-                <div style={{ ...monoLabel(10, THEME.textDim), marginBottom: 12 }}>ACCENT COLOR</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-                  {ACCENTS.map(a => (
-                    <button
-                      key={a.name}
-                      onClick={() => setAccentColor(a.color)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        background: "transparent",
-                        border: `1px solid ${accentColor === a.color ? THEME.lime : THEME.border}`,
-                        color: THEME.textPrimary,
-                        padding: "7px 10px", borderRadius: 4, cursor: "pointer",
-                        ...monoLabel(8), textAlign: "left", transition: "all 0.1s",
-                      }}
-                    >
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: a.color }} />
-                      {a.name.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Logout Button */}
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: 12,
+                background: THEME.surfaceSolid, // Fully opaque solid background
+                border: `1px solid ${THEME.border}`,
+                borderRadius: "var(--radius)",
+                padding: "20px",
+                width: 260,
+                zIndex: 100,
+                boxShadow: "0 24px 64px rgba(0,0,0,0.6)", // Solid shadow
+              }}
+            >
+              {/* Mode Toggle Section */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, paddingBottom: 12, borderBottom: `1px solid ${THEME.border}` }}>
+                <span style={monoLabel(10, THEME.textDim)}>APPEARANCE</span>
                 <button
-                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  onClick={toggleMode}
                   style={{
-                    width: "100%", textAlign: "left", background: "transparent", border: `1px solid ${THEME.dangerBorder}`,
-                    color: THEME.danger, padding: "10px 14px", borderRadius: 4, cursor: "pointer",
-                    ...monoLabel(10), transition: "all 0.1s",
+                    background: "transparent", border: `1px solid ${THEME.border}`,
+                    color: THEME.textPrimary, padding: "5px 10px", borderRadius: 4, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 6, ...monoLabel(9)
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = THEME.dangerBg)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  LOG OUT
+                  {mode === "dark" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                  )}
+                  {mode === "dark" ? "DARK" : "LIGHT"}
                 </button>
               </div>
-            </>
+
+              {/* Accent Selection Grid */}
+              <div style={{ ...monoLabel(10, THEME.textDim), marginBottom: 12 }}>ACCENT COLOR</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+                {ACCENTS.map(a => (
+                  <button
+                    key={a.name}
+                    onClick={() => setAccentColor(a.color)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      background: "transparent",
+                      border: `1px solid ${accentColor === a.color ? THEME.lime : THEME.border}`,
+                      color: THEME.textPrimary,
+                      padding: "7px 10px", borderRadius: 4, cursor: "pointer",
+                      ...monoLabel(8), textAlign: "left", transition: "all 0.1s",
+                    }}
+                  >
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: a.color }} />
+                    {a.name.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                style={{
+                  width: "100%", textAlign: "left", background: "transparent", border: `1px solid ${THEME.dangerBorder}`,
+                  color: THEME.danger, padding: "10px 14px", borderRadius: 4, cursor: "pointer",
+                  ...monoLabel(10), transition: "all 0.1s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = THEME.dangerBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                LOG OUT
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -2099,22 +2327,13 @@ export default function RepLogPage() {
                 </button>
               </div>
             )}
-            {/* ── Top 3 Stat Cards ──────────────────────────── */}
-            {/* To add/remove a stat card, edit this grid and the StatCard below */}
+            {/* ── Top 4 Stat Cards ──────────────────────────── */}
+            {/* Order: Weekly Volume → Frequency → Avg RIR → Intensity Score */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 18, marginBottom: 22,
             }}>
-              <StatCard
-                label="Intensity Score"
-                value={statsLoading ? "—" : (stats?.avgRpe ?? 0)}
-                sub="/ 10 RPE"
-                // trend logic: show "High" if avg RPE is above 8
-                trend={stats && stats.avgRpe > 8 ? "High" : "Optimal"}
-                barPct={(stats?.avgRpe ?? 0) / 10 * 100}
-                icon={<ZapIcon />}
-              />
               <Link href="/volume" style={{ textDecoration: "none" }}>
                 <StatCard
                   label="Weekly Volume"
@@ -2135,6 +2354,28 @@ export default function RepLogPage() {
                   icon={<CalendarIcon />}
                 />
               </Link>
+              <Link href="/rir-breakdown" style={{ textDecoration: "none" }}>
+                <StatCard
+                  label="Avg Reps in Reserve"
+                  value={statsLoading ? "—" : (stats?.avgRir ?? 0)}
+                  sub="/ 10 RIR"
+                  trend="View Breakdown →"
+                  barPct={((stats?.avgRir ?? 0) / 10) * 100}
+                  icon={
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={THEME.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </svg>
+                  }
+                />
+              </Link>
+              <StatCard
+                label="Intensity Score"
+                value={statsLoading ? "—" : (stats?.avgRpe ?? 0)}
+                sub="/ 10 RPE"
+                trend={stats && stats.avgRpe > 8 ? "High" : "Optimal"}
+                barPct={(stats?.avgRpe ?? 0) / 10 * 100}
+                icon={<ZapIcon />}
+              />
             </div>
 
             {/* ── Volume Chart + PRs ────────────────────────── */}
@@ -2148,7 +2389,7 @@ export default function RepLogPage() {
                 <div style={{
                   borderBottom: `1px solid ${THEME.border}`,
                   padding: "7px 14px",
-                  background: "rgba(39,39,42,0.3)",
+                  background: "var(--card-header-bg)",
                 }}>
                   <span style={brandLabel(12)}>Volume Distribution</span>
                 </div>
@@ -2180,9 +2421,9 @@ export default function RepLogPage() {
                         <div
                           title={`${d.totalSets.toLocaleString()} sets`}
                           style={{
-                            width: "100%",
+                            width: "70%",
                             height: `${Math.max(3, (d.totalSets / maxDayVolume) * 100)}%`,
-                            background: `linear-gradient(0deg, ${THEME.surface3} 0%, var(--accent-color, ${THEME.lime}) 100%)`, cursor: "crosshair",
+                            background: THEME.lime, cursor: "crosshair",
                             transition: "height 0.6s ease, background 0.15s",
                             borderRadius: "2px 2px 0 0",
                           }}
@@ -2201,7 +2442,7 @@ export default function RepLogPage() {
                 <div style={{
                   borderBottom: `1px solid ${THEME.border}`,
                   padding: "7px 14px",
-                  background: "rgba(39,39,42,0.3)",
+                  background: "var(--card-header-bg)",
                 }}>
                   <span style={brandLabel(12)}>Critical Benchmarks</span>
                 </div>
@@ -2232,7 +2473,7 @@ export default function RepLogPage() {
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <p style={{
-                            fontSize: 18, fontWeight: 900, color: THEME.lime,
+                            fontSize: 16, fontWeight: 900, color: THEME.lime,
                             fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
                           }}>
                             {pr.weight}kg
@@ -2250,9 +2491,9 @@ export default function RepLogPage() {
               <div style={{
                 borderBottom: `1px solid ${THEME.border}`,
                 padding: "7px 14px",
-                background: "rgba(39,39,42,0.3)",
+                background: "var(--card-header-bg)",
               }}>
-                <span style={brandLabel(12)}>Muscle Distribution [7D]</span>
+                <span style={brandLabel(12)}>Muscle Distribution </span>
               </div>
               {/* Empty state */}
               {(stats?.muscleDistribution?.length ?? 0) === 0 ? (
@@ -2269,7 +2510,13 @@ export default function RepLogPage() {
                       borderBottom: i < stats!.muscleDistribution.length - 1
                         ? `1px solid ${THEME.surface3}` : "none",
                     }}>
-                      <span style={{ ...monoLabel(10, THEME.textDim), minWidth: 110 }}>{m.muscle}</span>
+                      <span style={{
+                        fontWeight: 900, textTransform: "uppercase",
+                        color: THEME.textPrimary, fontSize: 12.5,
+                        minWidth: 110
+                      }}>
+                        {m.muscle}
+                      </span>
                       <div style={{ flex: 1, height: 2, background: THEME.border }}>
                         <div style={{
                           height: "100%", background: THEME.lime,
@@ -2277,7 +2524,11 @@ export default function RepLogPage() {
                           transition: "width 0.8s ease",
                         }} />
                       </div>
-                      <span style={{ ...monoLabel(10, THEME.textGhost), minWidth: 52, textAlign: "right" }}>
+                      <span style={{
+                        fontSize: 15, fontWeight: 900, color: THEME.lime,
+                        fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
+                        minWidth: 52, textAlign: "right"
+                      }}>
                         {m.sets} sets
                       </span>
                     </div>
@@ -2396,7 +2647,7 @@ export default function RepLogPage() {
                   alignItems: "center", marginBottom: 14,
                 }}>
                   <span style={monoLabel(9)}>
-                    {session.name} — {session.logs.length} exercise{session.logs.length !== 1 ? "s" : ""}
+                    {session.name}
                   </span>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button

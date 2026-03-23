@@ -35,6 +35,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     document.documentElement.style.setProperty('--glow-primary', '0 0 20px ' + color + '4d');
                   }
                 } catch (e) {}
+
+                // Register Service Worker for PWA
+                if ('serviceWorker' in navigator) {
+                  window.addEventListener('load', function() {
+                    navigator.serviceWorker.register('/sw.js').then(function(registration) {
+                      console.log('SW registered: ', registration.scope);
+                    }, function(err) {
+                      console.log('SW registration failed: ', err);
+                    });
+                  });
+                }
               })();
             `,
           }}

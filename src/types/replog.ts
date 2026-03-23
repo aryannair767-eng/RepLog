@@ -49,6 +49,7 @@ export interface WorkoutSessionData {
 // ── Stats shown on the dashboard ─────────────────────────────
 export interface DashboardStats {
   avgRpe: number;
+  avgRir: number;
   weeklyVolumeKg: number;
   weeklyFrequency: number;
   totalSetsThisWeek: number;
