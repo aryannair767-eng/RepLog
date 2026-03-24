@@ -1,6 +1,7 @@
 "use client";
 
 import { getAvgRirByMuscle } from "@/app/actions/stats";
+import { getData, putData, STORES } from "@/lib/db";
 import Link from "next/link";
 import React, { useState, useEffect } from "react";
 
@@ -65,10 +66,27 @@ export default function RirBreakdownPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getAvgRirByMuscle().then((res) => {
-      setData(res);
-      setLoading(false);
-    });
+    async function load() {
+      // 1. Instantly load from IndexedDB cache
+      const cached = await getData(STORES.STATS, "rir_breakdown").catch(() => null);
+      if (cached) {
+        setData((cached as any).data);
+        setLoading(false);
+      }
+
+      // 2. Fetch fresh data from server silently
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        try {
+          const res = await getAvgRirByMuscle();
+          setData(res);
+          setLoading(false);
+          putData(STORES.STATS, { id: "rir_breakdown", data: res }).catch(() => {});
+        } catch(e) {}
+      } else {
+        setLoading(false);
+      }
+    }
+    load();
   }, []);
 
   // Overall average RIR

@@ -853,11 +853,12 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
+    let hasCache = false;
     // 1. Instantly load from IndexedDB
     getData(STORES.STATS, "historical_progress").then((cached) => {
       if (cached) {
         setData((cached as any).data);
+        hasCache = true;
         setLoading(false);
       }
     }).catch(() => { });
@@ -868,13 +869,13 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
         setData(res);
         setLoading(false);
         putData(STORES.STATS, { id: "historical_progress", data: res }).catch(() => { });
-      }).catch(console.error);
+      }).catch(() => { if (!hasCache) setLoading(false); });
     } else {
-      setLoading(false);
+      if (!hasCache) setLoading(false);
     }
   }, [refreshKey]);
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", ...monoLabel(12) }}>Analyzing history...</div>;
+  if (loading && data.length === 0) return <div style={{ padding: 40, textAlign: "center", ...monoLabel(12) }}>Analyzing history...</div>;
 
   if (data.length === 0) {
     return (
@@ -1267,23 +1268,49 @@ function ExerciseLibraryModal({
   // Re-run search whenever the query or libTab changes
   useEffect(() => {
     const t = setTimeout(async () => {
-      setLoading(true);
       if (!query) {
+        // No query: load full list
         if (libTab === "general") {
+          // If we already have the full list cached in memory, show it instantly
+          if (allExercises.length > 0) {
+            setResults(allExercises);
+            // Background refresh from server
+            getGeneralExercises().then((all) => {
+              setResults(all);
+              setAllExercises(all);
+              putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
+            }).catch(() => { });
+            return;
+          }
+          setLoading(true);
           const all = await getGeneralExercises();
           setResults(all);
-          setAllExercises(all); // Cache the full list
+          setAllExercises(all);
           putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
         } else {
+          setLoading(true);
           const personal = await getPersonalExercises();
           setResults(personal);
         }
       } else {
+        // Query typed: use client-side filtering if we have the full list
+        if (allExercises.length > 0 && libTab === "general") {
+          const q = query.toLowerCase();
+          const filtered = allExercises.filter(
+            (ex) =>
+              ex.name.toLowerCase().includes(q) ||
+              ex.primaryMuscle.toLowerCase().includes(q)
+          );
+          setResults(filtered);
+          return;
+        }
+        // Fallback to server search
+        setLoading(true);
         const res = await searchExercises(query);
         setResults(res);
       }
       setLoading(false);
-    }, 250); // debounce search input
+    }, 150); // reduced debounce since client-side filtering is instant
     return () => clearTimeout(t);
   }, [query, libTab]);
 
