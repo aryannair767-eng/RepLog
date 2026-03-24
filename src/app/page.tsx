@@ -46,7 +46,7 @@ import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 
 // IndexedDB — local data layer for offline & instant loading
-import { getData, putData, getAllData, STORES, initDB } from "@/lib/db";
+import { getData, putData, getAllData, clearStore, STORES, initDB } from "@/lib/db";
 
 // TypeScript types
 import type {
@@ -1339,8 +1339,16 @@ function ExerciseLibraryModal({
         {step === "search" && (
           <>
             {loading && (
-              <div style={{ padding: 16, textAlign: "center", ...monoLabel() }}>
-                Querying database...
+              <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} style={{
+                    height: 44, borderRadius: 8,
+                    background: `linear-gradient(90deg, ${THEME.surface} 25%, ${THEME.surface3} 50%, ${THEME.surface} 75%)`,
+                    backgroundSize: "200% 100%",
+                    animation: "shimmer 1.5s infinite",
+                  }} />
+                ))}
+                <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
               </div>
             )}
 
@@ -1933,6 +1941,23 @@ export default function RepLogPage() {
 
   const { data: authSession } = useSession();
   const userName = authSession?.user?.name?.split(" ")[0] || "Athlete";
+  const userEmail = authSession?.user?.email || "";
+
+  // ── Data Isolation: clear local caches when user changes ───
+  useEffect(() => {
+    const currentUserId = authSession?.user?.email;
+    if (!currentUserId) return;
+    const lastUserId = localStorage.getItem("replog_last_user");
+    if (lastUserId && lastUserId !== currentUserId) {
+      // User changed — clear all cached data
+      clearStore(STORES.SESSIONS).catch(() => {});
+      clearStore(STORES.STATS).catch(() => {});
+      clearStore(STORES.EXERCISES).catch(() => {});
+      setSession(null);
+      setStats(null);
+    }
+    localStorage.setItem("replog_last_user", currentUserId);
+  }, [authSession?.user?.email]);
 
   // ── Load data on page mount ───────────────────────────────────
   useEffect(() => {
@@ -2268,6 +2293,18 @@ export default function RepLogPage() {
                 boxShadow: "var(--glow-primary)", // Solid shadow
               }}
             >
+              {/* User Profile Section */}
+              <div style={{ marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${THEME.border}` }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: THEME.textPrimary, letterSpacing: "-0.02em", textTransform: "uppercase" }}>
+                  {authSession?.user?.name || "Athlete"}
+                </div>
+                {userEmail && (
+                  <div style={{ ...monoLabel(9, THEME.textDim), marginTop: 4 }}>
+                    {userEmail}
+                  </div>
+                )}
+              </div>
+
               {/* Mode Toggle Section */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, paddingBottom: 12, borderBottom: `1px solid ${THEME.border}` }}>
                 <span style={monoLabel(10, THEME.textDim)}>APPEARANCE</span>
