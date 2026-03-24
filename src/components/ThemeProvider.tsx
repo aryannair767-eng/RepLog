@@ -37,8 +37,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return true;
   });
 
+  const [mounted, setMounted] = useState(false);
+
   // Load persisted preferences on mount
   useEffect(() => {
+    setMounted(true);
     const savedColor = localStorage.getItem("replog_accent_color");
     if (savedColor) setAccentColor(savedColor);
 
@@ -83,19 +86,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const isDarkAccent = (r * 0.299 + g * 0.587 + b * 0.114) < 128;
     root.style.setProperty("--accent-contrast", isDarkAccent ? "#ffffff" : "#000000");
 
-    localStorage.setItem("replog_accent_color", accentColor);
-  }, [accentColor, mode]);
+    if (mounted) {
+      localStorage.setItem("replog_accent_color", accentColor);
+    }
+  }, [accentColor, mode, mounted]);
 
   // Apply dark/light mode class
   useEffect(() => {
-    const root = document.documentElement;
-    if (mode === "light") {
-      root.classList.add("light");
-    } else {
-      root.classList.remove("light");
+    if (mounted) {
+      const root = document.documentElement;
+      if (mode === "light") {
+        root.classList.add("light");
+      } else {
+        root.classList.remove("light");
+      }
+      localStorage.setItem("replog_theme_mode", mode);
     }
-    localStorage.setItem("replog_theme_mode", mode);
-  }, [mode]);
+  }, [mode, mounted]);
 
   const toggleMode = () => {
     setMode((prev) => (prev === "dark" ? "light" : "dark"));

@@ -1,9 +1,7 @@
-const CACHE_NAME = 'replog-cache-v1';
+const CACHE_NAME = 'replog-cache-v2';
 const ASSETS_TO_CACHE = [
-  '/',
   '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
+  '/icon.svg',
 ];
 
 // Install Event - cache core static assets
@@ -17,7 +15,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate Event - clear old caches
+// Activate Event - clear ALL old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keyList) => {
@@ -34,23 +32,37 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event - Cache-First Strategy
+// Fetch Event - Network-First for navigation, Cache-First for static assets
 self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (event.request.method !== 'GET') return;
 
-  // Skip browser extensions and other non-http schemes
+  // Skip non-http schemes
   if (!(event.request.url.indexOf('http') === 0)) return;
 
+  // For HTML navigation requests: always go Network-First
+  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          return networkResponse;
+        })
+        .catch(() => {
+          // Offline fallback — serve cached page if available
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // For static assets (JS, CSS, fonts, images): Cache-First
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
 
-      // If not in cache, fetch from network
       return fetch(event.request).then((networkResponse) => {
-        // Cache new static assets (JS, CSS, fonts, images)
         if (
           networkResponse &&
           networkResponse.status === 200 &&

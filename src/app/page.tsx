@@ -297,6 +297,32 @@ function RestTimer({ triggerReset }: { triggerReset: number }) {
   const pct = Math.min((elapsed / target) * 100, 100);
   const isDone = remaining === 0 && elapsed > 0;
 
+  useEffect(() => {
+    if (isDone) {
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate([200, 100, 200]);
+      }
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.3);
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      } catch (e) {
+        // Fallback for strict browsers
+        console.log("Audio blocked by browser");
+      }
+    }
+  }, [isDone]);
+
   // Format as MM:SS
   const display = `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`;
 
@@ -752,7 +778,7 @@ function ExerciseCard({
               borderRadius: THEME.borderRadius,
               padding: "12px 16px",
               width: 200,
-              boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+              boxShadow: "var(--glow-primary)",
               marginTop: 4,
             }}>
               <div style={{ ...brandLabel(10, THEME.lime), marginBottom: 8, borderBottom: `1px solid ${THEME.border}`, paddingBottom: 4 }}>
@@ -828,10 +854,24 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
 
   useEffect(() => {
     setLoading(true);
-    getHistoricalProgress().then((res) => {
-      setData(res);
+    // 1. Instantly load from IndexedDB
+    getData(STORES.STATS, "historical_progress").then((cached) => {
+      if (cached) {
+        setData((cached as any).data);
+        setLoading(false);
+      }
+    }).catch(() => { });
+
+    // 2. Fetch fresh data from server
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      getHistoricalProgress().then((res) => {
+        setData(res);
+        setLoading(false);
+        putData(STORES.STATS, { id: "historical_progress", data: res }).catch(() => { });
+      }).catch(console.error);
+    } else {
       setLoading(false);
-    });
+    }
   }, [refreshKey]);
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", ...monoLabel(12) }}>Analyzing history...</div>;
@@ -865,7 +905,7 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
             textTransform: "uppercase"
           }}
         >
-          START FIRST SESSION →
+          START FIRST SESSION
         </button>
       </div>
     );
@@ -905,7 +945,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
 
   if (data.length === 0) return (
-    <div style={cardStyle}>
+    <div style={{ ...cardStyle, width: "100%", margin: "0 auto" }}>
       <div style={{ padding: 40, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
         No data captured for this kinetic chain.
       </div>
@@ -966,7 +1006,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
   const activeExData = processedData.find(d => d.exerciseId === activeExId);
 
   return (
-    <div style={{ ...cardStyle, padding: "24px 16px 16px" }}>
+    <div style={{ ...cardStyle, padding: "24px 16px 16px", width: "95%", margin: "0 auto" }}>
       {/* Search/Stats Overlay when an exercise is selected */}
       {/* Wrapper fixed height prevents layout shift glitch on hover */}
       <div style={{ minHeight: 64, marginBottom: 16 }}>
@@ -1004,8 +1044,8 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
         )}
       </div>
 
-      <div style={{ position: "relative", width: "100%", maxWidth: 800, overflowX: "auto" }}>
-        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", minWidth: 400 }}>
+      <div style={{ position: "relative", width: "95%", maxWidth: 800, margin: "0 auto", overflowX: "auto" }}>
+        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
           {/* Grid Lines */}
           <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke={THEME.border} />
           {/* Baseline Indicator */}
@@ -1093,7 +1133,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
             pointerEvents: "none",
             whiteSpace: "nowrap",
             zIndex: 10,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
+            boxShadow: "var(--glow-primary)",
           }}>
             {tooltip.text}
           </div>
@@ -1203,12 +1243,26 @@ function ExerciseLibraryModal({
   const [results, setResults] = useState<ExerciseData[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [allExercises, setAllExercises] = useState<ExerciseData[]>([]); // Added for caching
 
   // Creation sub-steps: "search" | "select-muscle" | "custom-muscle"
   const [step, setStep] = useState<"search" | "select-muscle" | "custom-muscle">("search");
   const [customMuscle, setCustomMuscle] = useState("");
 
   const MUSCLES = ["Chest", "Back", "Shoulders", "Traps", "Quadriceps", "Hamstrings", "Calves", "Biceps", "Triceps", "Abs", "Glutes", "Legs", "Forearms"];
+
+  // Fetch library initially
+  useEffect(() => {
+    // 1. Instantly load from IndexedDB
+    getData(STORES.EXERCISES, "library_cache").then((cached) => {
+      if (cached && !query) {
+        // We need to ensure results is updated too if currently showing library
+        setResults((cached as any).data);
+        setAllExercises((cached as any).data); // Ensure allExercises is also populated from cache
+        setLoading(false);
+      }
+    }).catch(() => { });
+  }, []);
 
   // Re-run search whenever the query or libTab changes
   useEffect(() => {
@@ -1218,6 +1272,8 @@ function ExerciseLibraryModal({
         if (libTab === "general") {
           const all = await getGeneralExercises();
           setResults(all);
+          setAllExercises(all); // Cache the full list
+          putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
         } else {
           const personal = await getPersonalExercises();
           setResults(personal);
@@ -1496,7 +1552,7 @@ function ExerciseLibraryModal({
           width: "100%", maxWidth: 480,
           maxHeight: "85vh",
           display: "flex", flexDirection: "column",
-          boxShadow: "0 32px 80px rgba(0,0,0,0.5)",
+          boxShadow: "var(--glow-primary)",
         }}>
         {/* Modal header & Tab switch */}
         <div style={{
@@ -1791,8 +1847,8 @@ export default function RepLogPage() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [swapTargetLogId, setSwapTargetLogId] = useState<string | null>(null);
   // loading states for async actions
-  const [sessionLoading, setSessionLoading] = useState(true);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [showPreviousSessions, setShowPreviousSessions] = useState(false);
   const [previousSessions, setPreviousSessions] = useState<PreviousSessionSummary[]>([]);
@@ -1920,18 +1976,25 @@ export default function RepLogPage() {
     if (!showPreviousSessions) return;
 
     let cancelled = false;
-    setPreviousSessionsLoading(true);
 
-    getPreviousSessions()
-      .then((sessions) => {
-        if (!cancelled) setPreviousSessions(sessions);
-      })
-      .catch(() => {
-        if (!cancelled) setPreviousSessions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setPreviousSessionsLoading(false);
-      });
+    // 1. Instant Cache Load
+    getData(STORES.SESSIONS, "history").then((cached) => {
+      if (cached && !cancelled) setPreviousSessions((cached as any).data);
+    }).catch(() => { });
+
+    // 2. Background Server Sync
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      getPreviousSessions()
+        .then((sessions) => {
+          if (!cancelled) {
+            setPreviousSessions(sessions);
+            putData(STORES.SESSIONS, { id: "history", data: sessions }).catch(() => { });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setPreviousSessions([]);
+        });
+    }
 
     return () => {
       cancelled = true;
@@ -2100,7 +2163,7 @@ export default function RepLogPage() {
             boxShadow: "var(--glow-primary)",
             transition: "background var(--transition), box-shadow var(--transition)",
           }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--accent-contrast)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill={mode === 'dark' && accentColor.toLowerCase() === '#ffffff' ? '#000000' : '#ffffff'}>
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
             </svg>
           </div>
@@ -2131,7 +2194,7 @@ export default function RepLogPage() {
               borderRadius: "var(--radius)",
               opacity: actionLoading ? 0.6 : 1,
               transition: "transform 0.1s, opacity 0.2s",
-              boxShadow: "0 4px 12px rgba(163, 230, 53, 0.2)",
+              boxShadow: "var(--glow-primary)",
             }}
             onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.96)")}
             onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
@@ -2175,7 +2238,7 @@ export default function RepLogPage() {
                 padding: "20px",
                 width: 260,
                 zIndex: 100,
-                boxShadow: "0 24px 64px rgba(0,0,0,0.6)", // Solid shadow
+                boxShadow: "var(--glow-primary)", // Solid shadow
               }}
             >
               {/* Mode Toggle Section */}
@@ -2323,7 +2386,7 @@ export default function RepLogPage() {
                     cursor: "pointer"
                   }}
                 >
-                  GO TO LOGGER →
+                  GO TO LOGGER
                 </button>
               </div>
             )}
@@ -2339,7 +2402,7 @@ export default function RepLogPage() {
                   label="Weekly Volume"
                   value={statsLoading ? "—" : (stats?.totalSetsThisWeek ?? 0)}
                   sub="SETS"
-                  trend="View Breakdown →"
+                  trend="View Breakdown"
                   barPct={Math.min(((stats?.totalSetsThisWeek ?? 0) / 100) * 100, 100)}
                   icon={<ActivityIcon />}
                 />
@@ -2349,7 +2412,7 @@ export default function RepLogPage() {
                   label="Frequency"
                   value={statsLoading ? "—" : (stats?.weeklyFrequency ?? 0)}
                   sub="DAYS/WK"
-                  trend="View Breakdown →"
+                  trend="View Breakdown"
                   barPct={((stats?.weeklyFrequency ?? 0) / 7) * 100}
                   icon={<CalendarIcon />}
                 />
@@ -2358,8 +2421,8 @@ export default function RepLogPage() {
                 <StatCard
                   label="Avg Reps in Reserve"
                   value={statsLoading ? "—" : (stats?.avgRir ?? 0)}
-                  sub="/ 10 RIR"
-                  trend="View Breakdown →"
+                  sub="RIR"
+                  trend="View Breakdown"
                   barPct={((stats?.avgRir ?? 0) / 10) * 100}
                   icon={
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={THEME.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2371,7 +2434,7 @@ export default function RepLogPage() {
               <StatCard
                 label="Intensity Score"
                 value={statsLoading ? "—" : (stats?.avgRpe ?? 0)}
-                sub="/ 10 RPE"
+                sub="RPE"
                 trend={stats && stats.avgRpe > 8 ? "High" : "Optimal"}
                 barPct={(stats?.avgRpe ?? 0) / 10 * 100}
                 icon={<ZapIcon />}
@@ -2473,7 +2536,7 @@ export default function RepLogPage() {
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <p style={{
-                            fontSize: 16, fontWeight: 900, color: THEME.lime,
+                            fontSize: 14, fontWeight: 900, color: THEME.textPrimary,
                             fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
                           }}>
                             {pr.weight}kg
@@ -2525,7 +2588,7 @@ export default function RepLogPage() {
                         }} />
                       </div>
                       <span style={{
-                        fontSize: 15, fontWeight: 900, color: THEME.lime,
+                        fontSize: 15, fontWeight: 900, color: THEME.textPrimary,
                         fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
                         minWidth: 52, textAlign: "right"
                       }}>
@@ -2633,7 +2696,7 @@ export default function RepLogPage() {
                   onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.01)")}
                   onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
                 >
-                  {actionLoading ? "STARTING SESSION..." : ((stats?.totalSessionsEver ?? 0) === 0 ? "START FIRST SESSION →" : "START NEW SESSION →")}
+                  {actionLoading ? "STARTING SESSION..." : ((stats?.totalSessionsEver ?? 0) === 0 ? "START FIRST SESSION" : "START NEW SESSION")}
                 </button>
               </div>
             )}

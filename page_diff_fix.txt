@@ -1,0 +1,131 @@
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 10eb292..2a58b0d 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -299,0 +300,26 @@ function RestTimer({ triggerReset }: { triggerReset: number }) {
++  useEffect(() => {
++    if (isDone) {
++      if (typeof navigator !== "undefined" && navigator.vibrate) {
++        navigator.vibrate([200, 100, 200]);
++      }
++      try {
++        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
++        if (audioCtx.state === "suspended") audioCtx.resume();
++        const oscillator = audioCtx.createOscillator();
++        const gainNode = audioCtx.createGain();
++        oscillator.type = "sine";
++        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
++        oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.3);
++        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
++        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
++        oscillator.connect(gainNode);
++        gainNode.connect(audioCtx.destination);
++        oscillator.start();
++        oscillator.stop(audioCtx.currentTime + 0.3);
++      } catch (e) {
++        // Fallback for strict browsers
++        console.log("Audio blocked by browser");
++      }
++    }
++  }, [isDone]);
++
+@@ -831,2 +857,16 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
+-    getHistoricalProgress().then((res) => {
+-      setData(res);
++    // 1. Instantly load from IndexedDB
++    getData(STORES.STATS, "historical_progress").then((cached) => {
++      if (cached) {
++        setData((cached as any).data);
++        setLoading(false);
++      }
++    }).catch(() => { });
++
++    // 2. Fetch fresh data from server
++    if (typeof navigator !== "undefined" && navigator.onLine) {
++      getHistoricalProgress().then((res) => {
++        setData(res);
++        setLoading(false);
++        putData(STORES.STATS, { id: "historical_progress", data: res }).catch(() => { });
++      }).catch(console.error);
++    } else {
+@@ -834 +874 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
+-    });
++    }
+@@ -908 +948 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
+-    <div style={cardStyle}>
++    <div style={{ ...cardStyle, width: "100%", margin: "0 auto" }}>
+@@ -969 +1009 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
+-    <div style={{ ...cardStyle, padding: "24px 16px 16px" }}>
++    <div style={{ ...cardStyle, padding: "24px 16px 16px", width: "95%", margin: "0 auto" }}>
+@@ -1007,2 +1047,2 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
+-      <div style={{ position: "relative", width: "100%", maxWidth: 800, overflowX: "auto" }}>
+-        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", minWidth: 400 }}>
++      <div style={{ position: "relative", width: "95%", maxWidth: 800, margin: "0 auto", overflowX: "auto" }}>
++        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+@@ -1205,0 +1246 @@ function ExerciseLibraryModal({
++  const [allExercises, setAllExercises] = useState<ExerciseData[]>([]); // Added for caching
+@@ -1212,0 +1254,13 @@ function ExerciseLibraryModal({
++  // Fetch library initially
++  useEffect(() => {
++    // 1. Instantly load from IndexedDB
++    getData(STORES.EXERCISES, "library_cache").then((cached) => {
++      if (cached && !query) {
++        // We need to ensure results is updated too if currently showing library
++        setResults((cached as any).data);
++        setAllExercises((cached as any).data); // Ensure allExercises is also populated from cache
++        setLoading(false);
++      }
++    }).catch(() => { });
++  }, []);
++
+@@ -1220,0 +1275,2 @@ function ExerciseLibraryModal({
++          setAllExercises(all); // Cache the full list
++          putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
+@@ -1794,2 +1850,2 @@ export default function RepLogPage() {
+-  const [sessionLoading, setSessionLoading] = useState(true);
+-  const [statsLoading, setStatsLoading] = useState(true);
++  const [sessionLoading, setSessionLoading] = useState(false);
++  const [statsLoading, setStatsLoading] = useState(false);
+@@ -1923,12 +1979,19 @@ export default function RepLogPage() {
+-    setPreviousSessionsLoading(true);
+-
+-    getPreviousSessions()
+-      .then((sessions) => {
+-        if (!cancelled) setPreviousSessions(sessions);
+-      })
+-      .catch(() => {
+-        if (!cancelled) setPreviousSessions([]);
+-      })
+-      .finally(() => {
+-        if (!cancelled) setPreviousSessionsLoading(false);
+-      });
++
++    // 1. Instant Cache Load
++    getData(STORES.SESSIONS, "history").then((cached) => {
++      if (cached && !cancelled) setPreviousSessions((cached as any).data);
++    }).catch(() => { });
++
++    // 2. Background Server Sync
++    if (typeof navigator !== "undefined" && navigator.onLine) {
++      getPreviousSessions()
++        .then((sessions) => {
++          if (!cancelled) {
++            setPreviousSessions(sessions);
++            putData(STORES.SESSIONS, { id: "history", data: sessions }).catch(() => { });
++          }
++        })
++        .catch(() => {
++          if (!cancelled) setPreviousSessions([]);
++        });
++    }
+@@ -2342 +2405 @@ export default function RepLogPage() {
+-                  trend="View Breakdown →"
++                  trend="View Breakdown"
+@@ -2352 +2415 @@ export default function RepLogPage() {
+-                  trend="View Breakdown →"
++                  trend="View Breakdown"
+@@ -2361,2 +2424,2 @@ export default function RepLogPage() {
+-                  sub="/ 10 RIR"
+-                  trend="View Breakdown →"
++                  sub="RIR"
++                  trend="View Breakdown"

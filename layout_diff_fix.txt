@@ -1,0 +1,7 @@
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 3291fe2..89c984e 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -23,0 +24,2 @@ export default function RootLayout({ children }: { children: React.ReactNode })
++        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
++        <link rel="apple-touch-icon" href="/icon.svg" />

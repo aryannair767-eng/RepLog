@@ -8,19 +8,19 @@ import React, { useState, useEffect } from "react";
 // THEME CONSTANTS
 // ============================================================
 const THEME = {
-  lime:       "var(--accent-color)",
-  limeHover:  "var(--accent-glow)",
-  black:      "var(--bg)",
-  surface:    "var(--surface)",
+  lime: "var(--accent-color)",
+  limeHover: "var(--accent-glow)",
+  black: "var(--bg)",
+  surface: "var(--surface)",
   surfaceSolid: "var(--surface-solid)",
-  surface3:   "var(--surface-hover)",
-  border:     "var(--border)",
-  textPrimary:"var(--text-primary)",
-  textMuted:  "var(--text-secondary)",
-  textGhost:  "var(--text-ghost)",
-  danger:     "var(--danger)",
-  fontMono:   "var(--font-main)",
-  fontSans:   "var(--font-main)",
+  surface3: "var(--surface-hover)",
+  border: "var(--border)",
+  textPrimary: "var(--text-primary)",
+  textMuted: "var(--text-secondary)",
+  textGhost: "var(--text-ghost)",
+  danger: "var(--danger)",
+  fontMono: "var(--font-main)",
+  fontSans: "var(--font-main)",
   borderRadius: "var(--radius, 12px)",
 };
 
@@ -74,9 +74,9 @@ export default function RirBreakdownPage() {
   // Overall average RIR
   const overallRir = data.length > 0
     ? Math.round(
-        (data.reduce((sum, d) => sum + d.avgRir * d.totalSets, 0) /
+      (data.reduce((sum, d) => sum + d.avgRir * d.totalSets, 0) /
         data.reduce((sum, d) => sum + d.totalSets, 0)) * 10
-      ) / 10
+    ) / 10
     : 0;
 
   if (loading) {
@@ -111,8 +111,8 @@ export default function RirBreakdownPage() {
             display: "flex", alignItems: "center", justifyContent: "center",
             cursor: "pointer", transition: "all 0.15s"
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.textMuted; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border; }}>
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.textMuted; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border; }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6" />
             </svg>

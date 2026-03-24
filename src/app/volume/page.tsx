@@ -1,6 +1,7 @@
 "use client";
 
 import { getWeeklyMuscleVolume } from "@/app/actions/stats";
+import { getData, putData, STORES } from "@/lib/db";
 import Link from "next/link";
 import React, { useState, useEffect } from "react";
 
@@ -36,27 +37,27 @@ function monoLabel(size = 10, color = THEME.textMuted): React.CSSProperties {
 
 export default function VolumePage() {
   const [data, setData] = useState<{ muscle: string; sets: number }[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const res = await getWeeklyMuscleVolume();
-      setData(res);
-      setLoading(false);
+      // 1. Instantly load from IndexedDB cache
+      const cached = await getData(STORES.STATS, "volume_breakdown").catch(() => null);
+      if (cached) setData((cached as any).data);
+      
+      // 2. Fetch fresh data from server silently
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        try {
+          const res = await getWeeklyMuscleVolume();
+          setData(res);
+          putData(STORES.STATS, { id: "volume_breakdown", data: res }).catch(() => {});
+        } catch(e) {}
+      }
     }
     load();
   }, []);
   
   // Find the max sets to scale the bar chart properly
   const maxSets = data.length > 0 ? Math.max(...data.map(d => d.sets)) : 1;
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", background: THEME.black, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={monoLabel(12, THEME.lime)}>Synchronizing telemetry...</span>
-      </div>
-    );
-  }
 
   return (
     <div style={{
@@ -175,10 +176,10 @@ export default function VolumePage() {
 
                       {/* Vertical Bar */}
                       <div style={{
-                        width: "100%",
+                        width: "70%",
                         height: `${heightPct}%`,
-                        background: `linear-gradient(0deg, var(--surface-hover) 0%, var(--accent-color) 100%)`,
-                        borderRadius: "4px 4px 0 0",
+                        background: "var(--accent-color)",
+                        borderRadius: "2px 2px 0 0",
                         transition: "height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
                         position: "relative",
                       }}>

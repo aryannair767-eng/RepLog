@@ -1,6 +1,7 @@
 "use client";
 
 import { getExerciseRirForMuscle } from "@/app/actions/stats";
+import { getData, putData, STORES } from "@/lib/db";
 import Link from "next/link";
 import React, { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
@@ -65,13 +66,22 @@ export default function MuscleExerciseRirPage() {
   const muscle = decodeURIComponent(params.muscle as string);
 
   const [data, setData] = useState<ExerciseRirData[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getExerciseRirForMuscle(muscle).then((res) => {
-      setData(res);
-      setLoading(false);
-    });
+    async function load() {
+      const cacheKey = `rir_muscle_${muscle}`;
+      const cached = await getData(STORES.STATS, cacheKey).catch(() => null);
+      if (cached) setData((cached as any).data);
+      
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        try {
+          const res = await getExerciseRirForMuscle(muscle);
+          setData(res);
+          putData(STORES.STATS, { id: cacheKey, data: res }).catch(() => {});
+        } catch(e) {}
+      }
+    }
+    load();
   }, [muscle]);
 
   const overallRir = data.length > 0
@@ -80,14 +90,6 @@ export default function MuscleExerciseRirPage() {
         data.reduce((sum, d) => sum + d.totalSets, 0)) * 10
       ) / 10
     : 0;
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", background: THEME.black, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={monoLabel(12, THEME.lime)}>Loading exercise data...</span>
-      </div>
-    );
-  }
 
   return (
     <div style={{
