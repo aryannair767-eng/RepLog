@@ -30,7 +30,7 @@ import {
 import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
 
 // Server actions — these run on the server and talk to your DB
-import { getActiveSession, createSession, endSession, getPreviousSessions, deleteSession } from "@/app/actions/session";
+import { getActiveSession, createSession, endSession, getPreviousSessions, deleteSession, getSessionDetail } from "@/app/actions/session";
 import {
   addExerciseToSession,
   addSet,
@@ -1252,6 +1252,16 @@ function ExerciseLibraryModal({
 
   const MUSCLES = ["Chest", "Back", "Shoulders", "Traps", "Quadriceps", "Hamstrings", "Calves", "Biceps", "Triceps", "Abs", "Glutes", "Legs", "Forearms"];
 
+  // ── Swipe between General / Personal ─────────────────────────
+  const libTouchStartRef = useRef<number | null>(null);
+  const libTouchEndRef = useRef<number | null>(null);
+  const handleLibSwipe = () => {
+    if (!libTouchStartRef.current || !libTouchEndRef.current) return;
+    const distance = libTouchStartRef.current - libTouchEndRef.current;
+    if (distance > 70 && libTab === "general") setLibTab("personal");
+    else if (distance < -70 && libTab === "personal") setLibTab("general");
+  };
+
   // Fetch library initially
   useEffect(() => {
     // 1. Instantly load from IndexedDB
@@ -1338,7 +1348,7 @@ function ExerciseLibraryModal({
       <div style={{ overflowY: "auto", flex: 1 }}>
         {step === "search" && (
           <>
-            {loading && (
+            {loading && results.length === 0 && (
               <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {[1, 2, 3].map((i) => (
                   <div key={i} style={{
@@ -1559,8 +1569,12 @@ function ExerciseLibraryModal({
           </div>
         )}
 
-        <div style={{ flex: 1, padding: "8px 0" }}>
-          {/* Reuse the same list logic below by extracting it or duplicating slightly for layout */}
+        <div
+          style={{ flex: 1, padding: "8px 0" }}
+          onTouchStart={(e) => { libTouchEndRef.current = null; libTouchStartRef.current = e.touches[0].clientX; }}
+          onTouchMove={(e) => { libTouchEndRef.current = e.touches[0].clientX; }}
+          onTouchEnd={handleLibSwipe}
+        >
           {renderLibraryContent()}
         </div>
       </div>
@@ -1643,7 +1657,12 @@ function ExerciseLibraryModal({
         )}
 
         {/* Results list or Muscle Selection Grid */}
-        <div style={{ overflowY: "auto", flex: 1 }}>
+        <div
+          style={{ overflowY: "auto", flex: 1 }}
+          onTouchStart={(e) => { libTouchEndRef.current = null; libTouchStartRef.current = e.touches[0].clientX; }}
+          onTouchMove={(e) => { libTouchEndRef.current = e.touches[0].clientX; }}
+          onTouchEnd={handleLibSwipe}
+        >
           {renderLibraryContent()}
         </div>
       </div>
@@ -1651,13 +1670,111 @@ function ExerciseLibraryModal({
   );
 }
 
+// ============================================================
+// SESSION DETAIL VIEW
+// Read-only view of a past session's exercises and sets.
+// ============================================================
+function SessionDetailView({
+  sessionId,
+  onBack,
+}: {
+  sessionId: string;
+  onBack: () => void;
+}) {
+  const [sessionData, setSessionData] = useState<WorkoutSessionData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    getSessionDetail(sessionId)
+      .then((data) => { setSessionData(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [sessionId]);
+
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "2-digit" });
+
+  if (loading) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...monoLabel(12), color: THEME.textDim }}>Loading session...</div>
+      </div>
+    );
+  }
+
+  if (!sessionData) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+        <div style={{ ...monoLabel(12), color: THEME.danger }}>Session not found</div>
+        <button onClick={onBack} style={{ ...brandButton }}>BACK</button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={onBack}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: THEME.surface2, border: `1px solid ${THEME.border}`, borderRadius: THEME.borderRadius, width: "100%", maxWidth: 600, maxHeight: "85vh", display: "flex", flexDirection: "column" }}
+      >
+        {/* Header */}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", margin: 0 }}>{sessionData.name}</h2>
+            <div style={{ ...monoLabel(9, THEME.limeHover), marginTop: 4 }}>{formatDate(sessionData.startTime)}</div>
+          </div>
+          <button onClick={onBack} style={{ ...brandButton, padding: "6px 16px", display: "flex", alignItems: "center", gap: 6 }}>
+            ← BACK
+          </button>
+        </div>
+
+        {/* Exercise list */}
+        <div style={{ overflowY: "auto", flex: 1, padding: "12px 18px" }}>
+          {sessionData.logs.length === 0 && (
+            <div style={{ padding: 20, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>No exercises in this session</div>
+          )}
+          {sessionData.logs.map((log) => (
+            <div key={log.id} style={{ marginBottom: 16, border: `1px solid ${THEME.border}`, borderRadius: THEME.borderRadius, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", background: "var(--card-header-bg)", borderBottom: `1px solid ${THEME.border}` }}>
+                <h3 style={{ fontSize: 13, fontWeight: 900, textTransform: "uppercase", margin: 0 }}>{log.exercise.name}</h3>
+                <span style={{ ...monoLabel(9, THEME.textMuted), textTransform: "uppercase" }}>{log.exercise.mechanics} • {log.exercise.primaryMuscle}</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "40px repeat(4, 1fr)", padding: "6px 10px", gap: 6 }}>
+                {["Set", "Weight", "Reps", "RPE", "RIR"].map((h) => (
+                  <span key={h} style={{ ...monoLabel(8), textAlign: "center" }}>{h}</span>
+                ))}
+              </div>
+              {log.sets.filter((s) => s.isCompleted).map((set) => (
+                <div key={set.id} style={{ display: "grid", gridTemplateColumns: "40px repeat(4, 1fr)", padding: "5px 10px", gap: 6, borderTop: `1px solid ${THEME.border}`, background: THEME.doneBg }}>
+                  <span style={{ ...monoLabel(11, THEME.textMuted), textAlign: "center" }}>{set.setNumber}</span>
+                  <span style={{ ...monoLabel(11, THEME.textPrimary), textAlign: "center" }}>{set.weight}kg</span>
+                  <span style={{ ...monoLabel(11, THEME.textPrimary), textAlign: "center" }}>{set.reps}</span>
+                  <span style={{ ...monoLabel(11, THEME.textPrimary), textAlign: "center" }}>{set.rpe}</span>
+                  <span style={{ ...monoLabel(11, THEME.textPrimary), textAlign: "center" }}>{set.rir}</span>
+                </div>
+              ))}
+              {log.sets.filter((s) => s.isCompleted).length === 0 && (
+                <div style={{ padding: "8px 14px", ...monoLabel(9, THEME.textGhost), textAlign: "center" }}>No completed sets</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviousSessionsModal({
-  sessions, loading, onClose, onDelete,
+  sessions, loading, onClose, onDelete, onViewDetail,
 }: {
   sessions: PreviousSessionSummary[];
   loading: boolean;
   onClose: () => void;
   onDelete: (id: string) => void;
+  onViewDetail: (id: string) => void;
 }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -1746,13 +1863,18 @@ function PreviousSessionsModal({
               {sessions.map((s) => (
                 <div key={s.id}>
                   <div
+                    onClick={() => onViewDetail(s.id)}
                     style={{
                       padding: "12px 10px",
                       borderBottom: confirmDeleteId === s.id ? "none" : `1px solid ${THEME.surface3}`,
                       display: "flex",
                       justifyContent: "space-between",
                       gap: 12,
+                      cursor: "pointer",
+                      transition: "background 0.13s",
                     }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = THEME.surface3)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     <div>
                       <div style={{ ...monoLabel(9, THEME.limeHover) }}>{formatDate(s.startTime)}</div>
@@ -1770,7 +1892,7 @@ function PreviousSessionsModal({
                         </div>
                       </div>
                       <button
-                        onClick={() => setConfirmDeleteId(confirmDeleteId === s.id ? null : s.id)}
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(confirmDeleteId === s.id ? null : s.id); }}
                         style={{
                           background: "none",
                           border: "none",
@@ -1889,6 +2011,9 @@ export default function RepLogPage() {
   const [previousSessions, setPreviousSessions] = useState<PreviousSessionSummary[]>([]);
   const [previousSessionsLoading, setPreviousSessionsLoading] = useState(false);
   const [progressRefreshKey, setProgressRefreshKey] = useState(0);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const lastStatsFetchRef = useRef<number>(0);
+  const liftedExercisesRef = useRef<ExerciseData[]>([]);
 
   // ── Swipe Navigation for Mobile ──────────────────────────────
   // Detects horizontal swipes to switch between Dashboard, Logger, Progress, Library
@@ -1968,11 +2093,15 @@ export default function RepLogPage() {
     const loadInitialData = async () => {
       // 1. Try to load from IndexedDB first for instant UI
       try {
-        const [localSession, localStats] = await Promise.all([
+        const [localSession, localStats, localExercises] = await Promise.all([
           getData(STORES.SESSIONS, "active"),
           getData(STORES.STATS, "current"),
+          getData(STORES.EXERCISES, "library_cache"),
         ]);
 
+        if (localExercises) {
+          liftedExercisesRef.current = (localExercises as any).data || [];
+        }
         if (localSession) {
           setSession(localSession as WorkoutSessionData);
           setSessionLoading(false);
@@ -1995,6 +2124,10 @@ export default function RepLogPage() {
         if (serverSession) {
           setSession(serverSession);
           putData(STORES.SESSIONS, { ...serverSession, id: "active" });
+        } else {
+          // If server says no session, clear any stale local session from previous users/IDB
+          setSession(null);
+          putData(STORES.SESSIONS, { id: "active", isActive: false });
         }
         setSessionLoading(false);
 
@@ -2014,12 +2147,16 @@ export default function RepLogPage() {
     loadInitialData();
   }, []);
 
-  // Refresh stats whenever switching to Dashboard or Progress tab
+  // Refresh stats whenever switching to Dashboard or Progress tab (with staleness check)
   useEffect(() => {
     if (activeTab === "dashboard" || activeTab === "progress") {
+      const now = Date.now();
+      if (now - lastStatsFetchRef.current < 30000) return;
+      lastStatsFetchRef.current = now;
       (async () => {
         const newerStats = await getDashboardStats();
         setStats(newerStats);
+        putData(STORES.STATS, { ...newerStats, id: "current" }).catch(() => {});
       })();
     }
   }, [activeTab]);
@@ -2102,19 +2239,49 @@ export default function RepLogPage() {
   // ── handleAddExercise ─────────────────────────────────────────
   const handleAddExercise = async (exerciseId: string) => {
     if (swapTargetLogId) {
-      await updateWorkoutLogExercise(swapTargetLogId, exerciseId);
-      setSwapTargetLogId(null);
-    } else {
-      if (!session) return;
-      await addExerciseToSession(session.id, exerciseId);
+      try {
+        await updateWorkoutLogExercise(swapTargetLogId, exerciseId);
+        setSwapTargetLogId(null);
+        const updated = await getActiveSession();
+        setSession(updated);
+        if (updated) await putData(STORES.SESSIONS, { ...updated, id: "active" });
+      } catch (e) {
+        console.error("Failed to swap exercise:", e);
+      }
+      setIsLibraryOpen(false);
+      return;
     }
-    // Update local cache state and UI immediately (Optimistic UI would be better here, but for now we re-fetch and cache)
-    const updated = await getActiveSession();
-    setSession(updated);
-    if (updated) {
-      await putData(STORES.SESSIONS, { ...updated, id: "active" });
-    }
+
+    if (!session) return;
+
+    // Optimistic: build a temp log and add it to UI immediately
+    const cachedEx = liftedExercisesRef.current.find(e => e.id === exerciseId);
+    const tempLogId = `temp-log-${Date.now()}`;
+    const tempLog: WorkoutLogData = {
+      id: tempLogId,
+      exerciseId,
+      orderIndex: session.logs.length,
+      exercise: cachedEx
+        ? { id: cachedEx.id, name: cachedEx.name, primaryMuscle: cachedEx.primaryMuscle, secondaryMuscle: cachedEx.secondaryMuscle, mechanics: cachedEx.mechanics }
+        : { id: exerciseId, name: "Loading...", primaryMuscle: "", secondaryMuscle: null, mechanics: "" },
+      sets: [],
+    };
+    const optimisticSession = { ...session, logs: [...session.logs, tempLog] };
+    setSession(optimisticSession);
+    await putData(STORES.SESSIONS, { ...optimisticSession, id: "active" });
     setIsLibraryOpen(false);
+
+    // Background: persist to server and reconcile
+    try {
+      await addExerciseToSession(session.id, exerciseId);
+      const serverSession = await getActiveSession();
+      if (serverSession) {
+        setSession(serverSession);
+        await putData(STORES.SESSIONS, { ...serverSession, id: "active" });
+      }
+    } catch (e) {
+      console.error("Failed to add exercise:", e);
+    }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -2155,16 +2322,16 @@ export default function RepLogPage() {
       await putData(STORES.SESSIONS, { ...updatedSession, id: "active" });
     }
 
-    try {
-      await removeExercise(workoutLogId);
-      const updated = await getActiveSession(); // Re-sync to be sure
-      setSession(updated);
-      if (updated) {
-        await putData(STORES.SESSIONS, { ...updated, id: "active" });
-      }
-    } catch (e) {
-      console.error("Failed to remove exercise:", e);
-    }
+    // Background server sync — don't block on re-fetch
+    removeExercise(workoutLogId)
+      .then(() => getActiveSession())
+      .then((updated) => {
+        if (updated) {
+          setSession(updated);
+          putData(STORES.SESSIONS, { ...updated, id: "active" });
+        }
+      })
+      .catch((e) => console.error("Failed to remove exercise:", e));
   };
 
   // ── Derived stats for the stat cards ─────────────────────────
@@ -2874,12 +3041,21 @@ export default function RepLogPage() {
       }} />
 
       {/* Previous Sessions Modal */}
-      {showPreviousSessions && (
+      {showPreviousSessions && !selectedSessionId && (
         <PreviousSessionsModal
           sessions={previousSessions}
           loading={previousSessionsLoading}
           onClose={() => setShowPreviousSessions(false)}
           onDelete={handleDeleteSession}
+          onViewDetail={(id) => setSelectedSessionId(id)}
+        />
+      )}
+
+      {/* Session Detail View */}
+      {selectedSessionId && (
+        <SessionDetailView
+          sessionId={selectedSessionId}
+          onBack={() => setSelectedSessionId(null)}
         />
       )}
 

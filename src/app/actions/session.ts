@@ -178,3 +178,55 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
     };
   });
 }
+
+// ── getSessionDetail ─────────────────────────────────────────
+// Fetches a full session by ID with all exercises and sets.
+// Used for the read-only session detail view in History.
+export async function getSessionDetail(sessionId: string): Promise<WorkoutSessionData | null> {
+  const userId = await getAuthUserId();
+  const session = await prisma.workoutSession.findFirst({
+    where: {
+      id: sessionId,
+      userId, // ensure user owns this session
+    },
+    include: {
+      logs: {
+        orderBy: { orderIndex: "asc" },
+        include: {
+          exercise: true,
+          sets: { orderBy: { setNumber: "asc" } },
+        },
+      },
+    },
+  });
+
+  if (!session) return null;
+
+  return {
+    id: session.id,
+    name: session.name,
+    startTime: session.startTime.toISOString(),
+    isActive: session.isActive,
+    logs: session.logs.map((log) => ({
+      id: log.id,
+      exerciseId: log.exerciseId,
+      orderIndex: log.orderIndex,
+      exercise: {
+        id: log.exercise.id,
+        name: log.exercise.name,
+        primaryMuscle: log.exercise.primaryMuscle,
+        secondaryMuscle: log.exercise.secondaryMuscle,
+        mechanics: log.exercise.mechanics,
+      },
+      sets: log.sets.map((s) => ({
+        id: s.id,
+        setNumber: s.setNumber,
+        weight: Number(s.weight),
+        reps: s.reps,
+        rpe: s.rpe,
+        rir: s.rir,
+        isCompleted: s.isCompleted,
+      })),
+    })),
+  };
+}
