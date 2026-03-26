@@ -2516,7 +2516,17 @@ export default function RepLogPage() {
 
               {/* Logout Button */}
               <button
-                onClick={() => signOut({ callbackUrl: "/login" })}
+                onClick={async () => {
+                  try {
+                    await clearStore(STORES.SESSIONS);
+                    await clearStore(STORES.EXERCISES);
+                    await clearStore(STORES.STATS);
+                    await clearStore(STORES.SYNC_QUEUE);
+                  } catch (e) {
+                    // Ignore DB errors on logout
+                  }
+                  signOut({ callbackUrl: "/" });
+                }}
                 style={{
                   width: "100%", textAlign: "left", background: "transparent", border: `1px solid ${THEME.dangerBorder}`,
                   color: THEME.danger, padding: "10px 14px", borderRadius: 4, cursor: "pointer",

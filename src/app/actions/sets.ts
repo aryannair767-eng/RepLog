@@ -12,6 +12,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { getAuthUserId } from "@/lib/auth";
 
 // ── addExerciseToSession ──────────────────────────────────────
 // Adds an exercise to a live session and creates the first
@@ -23,6 +24,10 @@ export async function addExerciseToSession(
   sessionId: string,
   exerciseId: string
 ): Promise<string> {
+  const userId = await getAuthUserId();
+  const session = await prisma.workoutSession.findUnique({ where: { id: sessionId }});
+  if (session?.userId !== userId) throw new Error("Unauthorized");
+
   // Count existing exercise slots to set the display order
   const existingCount = await prisma.workoutLog.count({
     where: { sessionId },
@@ -59,8 +64,9 @@ export async function updateWorkoutLogExercise(
   workoutLogId: string,
   newExerciseId: string
 ): Promise<void> {
-  await prisma.workoutLog.update({
-    where: { id: workoutLogId },
+  const userId = await getAuthUserId();
+  await prisma.workoutLog.updateMany({
+    where: { id: workoutLogId, session: { userId } },
     data: { exerciseId: newExerciseId },
   });
   revalidatePath("/");
@@ -72,6 +78,10 @@ export async function updateWorkoutLogExercise(
 //
 // workoutLogId — the ID of the workout_log (exercise slot)
 export async function addSet(workoutLogId: string): Promise<string> {
+  const userId = await getAuthUserId();
+  const log = await prisma.workoutLog.findUnique({ where: { id: workoutLogId }, include: { session: true } });
+  if (log?.session.userId !== userId) throw new Error("Unauthorized");
+
   // Count existing sets to determine the next set number
   const existingSetCount = await prisma.setLog.count({
     where: { workoutLogId },
@@ -105,12 +115,13 @@ export async function updateSetField(
   field: "weight" | "reps" | "rpe" | "rir",
   value: number
 ): Promise<void> {
+  const userId = await getAuthUserId();
   // Validate: rpe and rir can't exceed 10
   const clamped =
     field === "rpe" || field === "rir" ? Math.min(value, 10) : value;
 
-  await prisma.setLog.update({
-    where: { id: setId },
+  await prisma.setLog.updateMany({
+    where: { id: setId, workoutLog: { session: { userId } } },
     data: { [field]: clamped },
   });
 }
@@ -125,8 +136,9 @@ export async function toggleSetComplete(
   setId: string,
   isCompleted: boolean
 ): Promise<void> {
-  await prisma.setLog.update({
-    where: { id: setId },
+  const userId = await getAuthUserId();
+  await prisma.setLog.updateMany({
+    where: { id: setId, workoutLog: { session: { userId } } },
     data: { isCompleted },
   });
 }
@@ -135,8 +147,9 @@ export async function toggleSetComplete(
 // Removes an exercise (and all its sets) from a session.
 // Cascade delete handles removing the set_log rows automatically.
 export async function removeExercise(workoutLogId: string): Promise<void> {
-  await prisma.workoutLog.delete({
-    where: { id: workoutLogId },
+  const userId = await getAuthUserId();
+  await prisma.workoutLog.deleteMany({
+    where: { id: workoutLogId, session: { userId } },
   });
   revalidatePath("/");
 }
@@ -144,8 +157,9 @@ export async function removeExercise(workoutLogId: string): Promise<void> {
 // ── removeSet ─────────────────────────────────────────────────
 // Removes a single set from a workout log.
 export async function removeSet(setId: string): Promise<void> {
-  await prisma.setLog.delete({
-    where: { id: setId },
+  const userId = await getAuthUserId();
+  await prisma.setLog.deleteMany({
+    where: { id: setId, workoutLog: { session: { userId } } },
   });
   revalidatePath("/");
 }

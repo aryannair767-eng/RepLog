@@ -55,14 +55,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For static assets (JS, CSS, fonts, images): Cache-First
+  // For static assets (JS, CSS, fonts, images): Network-First (better for dev/updates)
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      return fetch(event.request).then((networkResponse) => {
+    fetch(event.request)
+      .then((networkResponse) => {
         if (
           networkResponse &&
           networkResponse.status === 200 &&
@@ -77,7 +73,10 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      });
-    })
+      })
+      .catch(() => {
+        // Fallback to cache if network fails
+        return caches.match(event.request);
+      })
   );
 });

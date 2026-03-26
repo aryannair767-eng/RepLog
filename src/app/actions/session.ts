@@ -119,8 +119,9 @@ export async function createSession(): Promise<WorkoutSessionData> {
 // ── endSession ────────────────────────────────────────────────
 // Marks a session as finished and records the end time.
 export async function endSession(sessionId: string): Promise<void> {
-  await prisma.workoutSession.update({
-    where: { id: sessionId },
+  const userId = await getAuthUserId();
+  await prisma.workoutSession.updateMany({
+    where: { id: sessionId, userId },
     data: {
       isActive: false,
       endTime: new Date(),
@@ -133,8 +134,9 @@ export async function endSession(sessionId: string): Promise<void> {
 // ── deleteSession ─────────────────────────────────────────────
 // Permanently removes a workout session and all its data.
 export async function deleteSession(sessionId: string): Promise<void> {
-  await prisma.workoutSession.delete({
-    where: { id: sessionId },
+  const userId = await getAuthUserId();
+  await prisma.workoutSession.deleteMany({
+    where: { id: sessionId, userId },
   });
 
   revalidatePath("/");

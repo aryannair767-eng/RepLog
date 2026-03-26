@@ -5,7 +5,11 @@
 // Unauthenticated users are redirected to /login.
 // ============================================================
 
-export { default } from "next-auth/middleware";
+import { withAuth } from "next-auth/middleware";
+
+export default withAuth(function middleware() {
+  // Standard next-auth middleware protection
+});
 
 export const config = {
   matcher: [
