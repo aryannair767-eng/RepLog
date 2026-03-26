@@ -5,11 +5,14 @@
 
 import { useSession, signIn } from "next-auth/react";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -85,11 +88,28 @@ export default function LoginPage() {
         <p style={{
           fontSize: 14,
           color: "#6b7280",
-          marginBottom: 48,
+          marginBottom: error ? 16 : 48,
           textAlign: "center"
         }}>
           Sign in to start logging your workouts and tracking progress.
         </p>
+
+        {error && (
+          <div style={{
+            width: "100%",
+            padding: "12px",
+            background: "#fef2f2",
+            border: "1px solid #fee2e2",
+            color: "#dc2626",
+            borderRadius: "8px",
+            fontSize: 13,
+            marginBottom: 24,
+            textAlign: "center",
+            fontWeight: 500
+          }}>
+            Authentication Error: {error}
+          </div>
+        )}
 
         <button
           onClick={() => signIn("google")}
@@ -133,5 +153,13 @@ export default function LoginPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#fff" }} />}>
+      <LoginContent />
+    </Suspense>
   );
 }
