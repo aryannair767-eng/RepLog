@@ -1809,10 +1809,12 @@ function PreviousSessionsModal({
           border: `1px solid ${THEME.border}`,
           borderRadius: THEME.borderRadius,
           width: "100%",
-          maxWidth: 560,
+          maxWidth: 400,
+          minWidth: 320, // Prevent extreme shrinking
           maxHeight: "78vh",
           display: "flex",
           flexDirection: "column",
+          alignItems: "center",
         }}
       >
         <div
@@ -2542,7 +2544,13 @@ export default function RepLogPage() {
         </div>
       </header>
 
-      <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+      <main style={{
+        padding: 24,
+        maxWidth: 1100,
+        width: "100%",
+        margin: "0 auto",
+        minHeight: "calc(100vh - 64px)", // Ensure it fills the screen
+      }}>
 
         {/* ── TAB BAR ──────────────────────────────────────────── */}
         {/* To add a tab: add a button here and a matching section below */}

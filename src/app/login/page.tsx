@@ -58,6 +58,7 @@ function LoginContent() {
       <div style={{
         width: "100%",
         maxWidth: 400,
+        minWidth: 320,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
