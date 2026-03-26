@@ -52,7 +52,7 @@ function LoginContent() {
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
-      padding: 24,
+      padding: 12, // Mobile-first default
       fontFamily: "var(--font-main), sans-serif",
     }}>
       <div style={{

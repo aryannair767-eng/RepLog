@@ -2370,7 +2370,7 @@ export default function RepLogPage() {
         background: "var(--header-bg)",
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
-        padding: "13px 24px",
+        padding: "10px 14px", // Mobile-first default
         display: "flex", justifyContent: "space-between", alignItems: "center",
         position: "sticky", top: 0, zIndex: 40,
         transition: "background var(--transition), border-color var(--transition)",
@@ -2545,7 +2545,7 @@ export default function RepLogPage() {
       </header>
 
       <main style={{
-        padding: 24,
+        padding: 12, // Mobile-first default
         maxWidth: 1100,
         width: "100%",
         margin: "0 auto",

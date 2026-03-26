@@ -55,7 +55,7 @@ export default function CompleteProfilePage() {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      padding: 24,
+      padding: 16,
       fontFamily: "var(--font-main), sans-serif",
     }}>
       <div style={{
