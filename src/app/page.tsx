@@ -990,7 +990,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
   const maxRelScore = Math.max(...allRelScores, 0.1);
   const minRelScore = Math.min(...allRelScores, 0); // User wants 0 as baseline bottom
 
-  const W = 600; // Shortened from 800 to fit mobile better and tighten the graph
+  const W = 360; // Shortened from 800 to fit mobile better and tighten the graph
   const H = 260; // Slightly shorter height to match proportion
   const P = 40; // padding
 
@@ -2077,9 +2077,9 @@ export default function RepLogPage() {
     const lastUserId = localStorage.getItem("replog_last_user");
     if (lastUserId && lastUserId !== currentUserId) {
       // User changed — clear all cached data
-      clearStore(STORES.SESSIONS).catch(() => {});
-      clearStore(STORES.STATS).catch(() => {});
-      clearStore(STORES.EXERCISES).catch(() => {});
+      clearStore(STORES.SESSIONS).catch(() => { });
+      clearStore(STORES.STATS).catch(() => { });
+      clearStore(STORES.EXERCISES).catch(() => { });
       setSession(null);
       setStats(null);
     }
@@ -2163,7 +2163,7 @@ export default function RepLogPage() {
       (async () => {
         const newerStats = await getDashboardStats();
         setStats(newerStats);
-        putData(STORES.STATS, { ...newerStats, id: "current" }).catch(() => {});
+        putData(STORES.STATS, { ...newerStats, id: "current" }).catch(() => { });
       })();
     }
   }, [activeTab]);
@@ -2528,7 +2528,7 @@ export default function RepLogPage() {
                   if (!window.confirm(`Are you sure you want to log out of ${displayEmail}?`)) {
                     return;
                   }
-                  
+
                   try {
                     await clearStore(STORES.SESSIONS);
                     await clearStore(STORES.EXERCISES);
