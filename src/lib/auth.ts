@@ -39,11 +39,11 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: { 
+  session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  pages: { 
+  pages: {
     signIn: "/login",
   },
   callbacks: {
@@ -53,13 +53,13 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.isProfileComplete = (user as any).isProfileComplete;
       }
-      
+
       // If we update the session (e.g. from complete-profile), handle it here
       if (trigger === "update" && session?.isProfileComplete) {
         token.isProfileComplete = session.isProfileComplete;
         token.name = session.name;
       }
-      
+
       return token;
     },
 
