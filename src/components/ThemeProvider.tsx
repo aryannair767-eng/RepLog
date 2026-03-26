@@ -14,7 +14,8 @@ type ThemeContextType = {
 
 const ALL_ACCENTS = [
   { name: "Lime", color: "#CCFF00" },
-  { name: "Teal", color: "#0D9488" }, // Added for Light Mode visibility
+  { name: "Teal", color: "#0D9488" },
+  { name: "Emerald", color: "#10B981" },
   { name: "Blue", color: "#38bdf8" },
   { name: "Red", color: "#f87171" },
   { name: "Yellow", color: "#fbbf24" },
@@ -34,7 +35,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const ACCENTS = ALL_ACCENTS.filter(a => {
     if (mode === "dark" && (a.name === "Black" || a.name === "Slate")) return false;
-    if (mode === "light" && a.name === "White") return false;
+    if (mode === "light" && (a.name === "White" || a.name === "Lime")) return false; // Lime hidden in light mode
     return true;
   });
 
@@ -66,7 +67,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const isValid = ACCENTS.some(a => a.color.toLowerCase() === accentColor.toLowerCase());
     if (!isValid) {
-      setAccentColor("#CCFF00"); // Fallback to Lime
+      if (mode === "light" && accentColor.toLowerCase() === "#ccff00") {
+        setAccentColor("#0D9488"); // Auto-swap Lime to Teal for Light Mode
+      } else {
+        setAccentColor("#CCFF00"); // Standard fallback to Lime (will be filtered in Light)
+        if (mode === "light") setAccentColor("#0D9488"); // Override for Light
+      }
     }
   }, [mode, ACCENTS, accentColor]);
 
@@ -97,6 +103,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--accent-glow", glow);
     root.style.setProperty("--glow-primary", mode === "dark" ? `0 0 20px ${glow}` : `0 4px 12px rgba(0,0,0,0.08)`);
     root.style.setProperty("--done-border", `rgba(${r}, ${g}, ${b}, 0.3)`);
+    root.style.setProperty("--done-bg", `rgba(${r}, ${g}, ${b}, 0.06)`);
 
     // Add contrast color for text/icons inside accent backgrounds
     // If it's Black or Slate in light mode, the contrast should be white.
