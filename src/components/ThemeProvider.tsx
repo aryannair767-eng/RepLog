@@ -14,6 +14,7 @@ type ThemeContextType = {
 
 const ALL_ACCENTS = [
   { name: "Lime", color: "#CCFF00" },
+  { name: "Teal", color: "#0D9488" }, // Added for Light Mode visibility
   { name: "Blue", color: "#38bdf8" },
   { name: "Red", color: "#f87171" },
   { name: "Yellow", color: "#fbbf24" },
@@ -72,7 +73,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Apply accent color to CSS variables
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty("--accent-color", accentColor);
+    // Auto-swap Lime for Teal in Light mode as requested
+    const effectiveAccent = (mode === "light" && accentColor.toLowerCase() === "#ccff00") ? "#0D9488" : accentColor;
+    
+    root.style.setProperty("--accent-color", effectiveAccent);
+    root.style.setProperty("--primary", effectiveAccent);
+    root.style.setProperty("--ring", effectiveAccent);
+    root.style.setProperty("--accent", effectiveAccent);
     
     // Convert hex to RGB for semi-transparent variants
     let r = 204, g = 255, b = 0;

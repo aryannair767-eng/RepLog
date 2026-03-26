@@ -25,6 +25,9 @@
   /* Accent (overridden by ThemeProvider) */
   --accent-color: #CCFF00;
   --accent-glow: rgba(204, 255, 0, 0.3);
+  --primary: #CCFF00;
+  --ring: #CCFF00;
+  --accent: #CCFF00;
   --graph-accent: #00F0FF;
 
   /* Effects */
@@ -72,6 +75,12 @@
 
   --danger-bg: rgba(220, 38, 38, 0.06);
   --done-bg: rgba(204, 255, 0, 0.06);
+
+  --accent-color: #0D9488;
+  --accent-glow: rgba(13, 148, 136, 0.2);
+  --primary: #0D9488;
+  --ring: #0D9488;
+  --accent: #0D9488;
 
   --scrollbar-thumb: #CBD5E1;
   --scrollbar-track: #F8FAFC;
