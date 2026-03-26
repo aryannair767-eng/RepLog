@@ -22,6 +22,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover" />
+        <script dangerouslySetInnerHTML={{
+          __html: `
+    (function(){
+      var m = document.querySelector('meta[name="viewport"]');
+      if(m){
+        var c = m.getAttribute('content');
+        m.setAttribute('content', c + ',width=device-width');
+        requestAnimationFrame(function(){ m.setAttribute('content', c); });
+      }
+    })();
+  `}} />
       </head>
       <body>
         <AuthProvider>
