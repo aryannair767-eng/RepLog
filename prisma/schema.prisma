@@ -107,7 +107,7 @@ model WorkoutSession {
 
   logs      WorkoutLog[]
 
-  @@index([userId])
+  @@index([userId, startTime]) // Faster dashboard time-filtering
   @@index([isActive])
   @@map("workout_sessions")
 }
@@ -146,5 +146,6 @@ model SetLog {
   updatedAt    DateTime   @updatedAt
 
   @@index([workoutLogId])
+  @@index([isCompleted, createdAt]) // Massive speed boost for dashboard aggregations
   @@map("set_logs")
 }

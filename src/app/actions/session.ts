@@ -147,38 +147,25 @@ export async function deleteSession(sessionId: string): Promise<void> {
 export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
   const userId = await getAuthUserId();
   const sessions = await prisma.workoutSession.findMany({
-    where: {
-      userId,
-      isActive: false,
-    },
+    where: { userId, isActive: false },
     orderBy: { startTime: "desc" },
-    take: 20, // keep payload small
+    take: 20,
     include: {
       logs: {
-        include: {
-          sets: {
-            select: { id: true, isCompleted: true },
-          },
-        },
+        include: { _count: { select: { sets: { where: { isCompleted: true } } } } }
       },
+      _count: { select: { logs: true } }
     },
   });
 
-  return sessions.map((s) => {
-    const completedSetCount = s.logs.reduce((sum, log) => {
-      const completed = log.sets.filter((set) => set.isCompleted).length;
-      return sum + completed;
-    }, 0);
-
-    return {
-      id: s.id,
-      name: s.name,
-      startTime: s.startTime.toISOString(),
-      endTime: s.endTime ? s.endTime.toISOString() : null,
-      logCount: s.logs.length,
-      completedSetCount,
-    };
-  });
+  return sessions.map((s) => ({
+    id: s.id,
+    name: s.name,
+    startTime: s.startTime.toISOString(),
+    endTime: s.endTime?.toISOString() || null,
+    logCount: s._count.logs,
+    completedSetCount: s.logs.reduce((sum, log) => sum + log._count.sets, 0),
+  }));
 }
 
 // ── getSessionDetail ─────────────────────────────────────────

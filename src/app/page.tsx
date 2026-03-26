@@ -1810,7 +1810,7 @@ function PreviousSessionsModal({
           borderRadius: THEME.borderRadius,
           width: "100%",
           maxWidth: 400,
-          minWidth: 320, // Prevent extreme shrinking
+          minWidth: 280, // Safe for narrow mobile
           maxHeight: "78vh",
           display: "flex",
           flexDirection: "column",
@@ -2116,31 +2116,36 @@ export default function RepLogPage() {
         console.error("Local DB load failed:", e);
       }
 
-      // 2. Fetch from server in parallel to update local DB and UI
+      // 2. Fetch from server in a single' hydration' batch
       try {
-        const [serverSession, serverStats] = await Promise.all([
-          getActiveSession(),
-          getDashboardStats(),
-        ]);
+        const { getHydrationData } = await import("@/app/actions/hydration");
+        const data = await getHydrationData();
 
-        if (serverSession) {
-          setSession(serverSession);
-          putData(STORES.SESSIONS, { ...serverSession, id: "active" });
+        if (data.activeSession) {
+          setSession(data.activeSession);
+          putData(STORES.SESSIONS, { ...data.activeSession, id: "active" });
         } else {
-          // If server says no session, clear any stale local session from previous users/IDB
           setSession(null);
           putData(STORES.SESSIONS, { id: "active", isActive: false });
         }
         setSessionLoading(false);
 
-        if (serverStats) {
-          setStats(serverStats);
-          putData(STORES.STATS, { ...serverStats, id: "current" });
+        if (data.stats) {
+          setStats(data.stats);
+          putData(STORES.STATS, { ...data.stats, id: "current" });
         }
         setStatsLoading(false);
+
+        if (data.previousSessions) {
+          setPreviousSessions(data.previousSessions);
+        }
+
+        if (data.allExercises) {
+          liftedExercisesRef.current = data.allExercises;
+          putData(STORES.EXERCISES, { id: "library_cache", data: data.allExercises });
+        }
       } catch (e) {
-        console.error("Server fetch failed (offline?):", e);
-        // If server fails, we already have local data showing (if any)
+        console.error("Hydration fetch failed:", e);
         setSessionLoading(false);
         setStatsLoading(false);
       }
@@ -2519,6 +2524,11 @@ export default function RepLogPage() {
               {/* Logout Button */}
               <button
                 onClick={async () => {
+                  const displayEmail = authSession?.user?.email || "your account";
+                  if (!window.confirm(`Are you sure you want to log out of ${displayEmail}?`)) {
+                    return;
+                  }
+                  
                   try {
                     await clearStore(STORES.SESSIONS);
                     await clearStore(STORES.EXERCISES);
@@ -2643,7 +2653,7 @@ export default function RepLogPage() {
             {/* Order: Weekly Volume → Frequency → Avg RIR → Intensity Score */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
               gap: 18, marginBottom: 22,
             }}>
               <Link href="/volume" style={{ textDecoration: "none" }}>
@@ -2693,7 +2703,7 @@ export default function RepLogPage() {
             {/* ── Volume Chart + PRs ────────────────────────── */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
               gap: 18, marginBottom: 22,
             }}>
               {/* 7-day volume bar chart */}

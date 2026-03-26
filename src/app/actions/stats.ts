@@ -28,131 +28,79 @@ function getWeekStart(): Date {
 export async function getDashboardStats(): Promise<DashboardStats> {
   const userId = await getAuthUserId();
   const weekStart = getWeekStart();
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  // ── Single DB query: all completed sets this week ──────────
-  // We fetch everything in one go and calculate in JS to avoid
-  // multiple round-trips to the database.
-  const thisWeekSets = await prisma.setLog.findMany({
-    where: {
-      isCompleted: true,
-      workoutLog: {
-        session: {
-          userId,
-
-          startTime: { gte: weekStart }, // "gte" = greater than or equal
-        },
+  // ── Parallel DB fetching ──
+  const [thisWeekSets, heavySets, totalSessionsEver] = await Promise.all([
+    prisma.setLog.findMany({
+      where: {
+        isCompleted: true,
+        workoutLog: { session: { userId, startTime: { gte: weekStart } } },
       },
-    },
-    include: {
-      workoutLog: {
-        include: {
-          exercise: {
-            select: { primaryMuscle: true }, // only fetch what we need
-          },
-          session: {
-            select: { startTime: true },
+      select: {
+        weight: true,
+        reps: true,
+        rpe: true,
+        rir: true,
+        workoutLog: {
+          select: {
+            exercise: { select: { name: true, primaryMuscle: true } },
+            session: { select: { startTime: true } },
           },
         },
       },
-    },
-  });
+    }),
+    prisma.setLog.findMany({
+      where: {
+        isCompleted: true,
+        createdAt: { gte: thirtyDaysAgo },
+        workoutLog: { session: { userId } },
+      },
+      orderBy: { weight: "desc" },
+      include: { workoutLog: { include: { exercise: { select: { name: true } } } } },
+      take: 40,
+    }),
+    prisma.workoutSession.count({ where: { userId, isActive: false } }),
+  ]);
 
-  // ── Average RPE ────────────────────────────────────────────
-  // Filter out unlogged sets (RPE = 0)
+  // Calculations
   const loggedRpeSets = thisWeekSets.filter(s => s.rpe > 0);
-  const avgRpe =
-    loggedRpeSets.length > 0
-      ? loggedRpeSets.reduce((sum, s) => sum + s.rpe, 0) / loggedRpeSets.length
-      : 0;
+  const avgRpe = loggedRpeSets.length > 0 ? (loggedRpeSets.reduce((sum, s) => sum + s.rpe, 0) / loggedRpeSets.length) : 0;
 
-  // ── Average RIR ────────────────────────────────────────────
-  // Include RIR=0 (trained to failure) as a valid data point.
-  // Only exclude sets where user never entered an RIR (we use null check via DB default).
-  const loggedRirSets = thisWeekSets.filter(s => s.rir !== null && s.rir !== undefined);
-  const avgRir =
-    loggedRirSets.length > 0
-      ? loggedRirSets.reduce((sum, s) => sum + s.rir, 0) / loggedRirSets.length
-      : 0;
+  const loggedRirSets = thisWeekSets.filter(s => s.rir !== null);
+  const avgRir = loggedRirSets.length > 0 ? (loggedRirSets.reduce((sum, s) => sum + s.rir, 0) / loggedRirSets.length) : 0;
 
-  // ── Total volume in kg (weight × reps per set, summed) ─────
-  const weeklyVolumeKg = thisWeekSets.reduce(
-    (sum, s) => sum + Number(s.weight) * s.reps,
-    0
-  );
+  const weeklyVolumeKg = thisWeekSets.reduce((sum, s) => sum + Number(s.weight) * s.reps, 0);
 
-  // ── Weekly frequency (how many distinct days had a session) ─
-  const sessionDays = new Set(
-    thisWeekSets.map((s) =>
-      new Date(s.workoutLog.session.startTime).toDateString()
-    )
-  );
+  const sessionDays = new Set(thisWeekSets.map(s => new Date(s.workoutLog.session.startTime).toDateString()));
   const weeklyFrequency = sessionDays.size;
 
-  // ── Sets broken down by day of the week ─────────────────────
-  const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const volumeByDay = DAY_LABELS.map((day, i) => {
-    const targetDate = new Date(weekStart);
-    targetDate.setDate(weekStart.getDate() + i);
-    const targetStr = targetDate.toDateString();
-
-    const daySets = thisWeekSets.filter(
-      (s) => new Date(s.workoutLog.session.startTime).toDateString() === targetStr
-    ).length;
-
-    return { day, totalSets: daySets };
-  });
-
-  // ── Muscle distribution (sets per muscle group this week) ──
   const muscleCounts: Record<string, number> = {};
   for (const s of thisWeekSets) {
     const muscle = s.workoutLog.exercise.primaryMuscle;
     muscleCounts[muscle] = (muscleCounts[muscle] ?? 0) + 1;
   }
   const muscleDistribution = Object.entries(muscleCounts)
-    .sort(([, a], [, b]) => b - a) // sort most-trained first
+    .sort(([, a], [, b]) => b - a)
     .map(([muscle, sets]) => ({ muscle, sets }));
 
-  // ── Recent PRs (highest weight per exercise, last 30 days) ─
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const heavySets = await prisma.setLog.findMany({
-    where: {
-      isCompleted: true,
-      createdAt: { gte: thirtyDaysAgo },
-      workoutLog: { session: { userId } },
-    },
-    orderBy: { weight: "desc" },
-    include: {
-      workoutLog: {
-        include: { exercise: { select: { name: true } } },
-      },
-    },
-    take: 100, // limit to avoid huge payloads
+  const volumeByDay = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => {
+    const target = new Date(weekStart);
+    target.setDate(weekStart.getDate() + i);
+    const targetStr = target.toDateString();
+    return { day, totalSets: thisWeekSets.filter(s => new Date(s.workoutLog.session.startTime).toDateString() === targetStr).length };
   });
 
-  // Keep only the highest weight per exercise
   const prMap = new Map<string, { weight: number; date: string }>();
   for (const s of heavySets) {
     const name = s.workoutLog.exercise.name;
-    if (!prMap.has(name)) {
-      prMap.set(name, {
-        weight: Number(s.weight),
-        date: s.createdAt.toISOString().split("T")[0],
-      });
-    }
+    if (!prMap.has(name)) prMap.set(name, { weight: Number(s.weight), date: s.createdAt.toISOString().split("T")[0] });
   }
-  const recentPRs = Array.from(prMap.entries())
-    .slice(0, 3)
-    .map(([exerciseName, { weight, date }]) => ({ exerciseName, weight, date }));
-
-  // ── Total historic sessions (to determine new vs veteran user) ─
-  const totalSessionsEver = await prisma.workoutSession.count({
-    where: { userId, isActive: false },
-  });
+  const recentPRs = Array.from(prMap.entries()).slice(0, 3).map(([exerciseName, { weight, date }]) => ({ exerciseName, weight, date }));
 
   return {
-    avgRpe: Math.round(avgRpe * 10) / 10, // round to 1 decimal
+    avgRpe: Math.round(avgRpe * 10) / 10,
     avgRir: Math.round(avgRir * 10) / 10,
     weeklyVolumeKg: Math.round(weeklyVolumeKg),
     weeklyFrequency,

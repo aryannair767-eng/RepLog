@@ -94,17 +94,11 @@
    ═══════════════════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html {
+html, body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: var(--font-main);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  background: var(--bg);
-  color: var(--text-primary);
+  width: 100%;
+  overflow-x: hidden;
   transition: background var(--transition), color var(--transition);
 }
 

@@ -58,7 +58,7 @@ function LoginContent() {
       <div style={{
         width: "100%",
         maxWidth: 400,
-        minWidth: 320,
+        minWidth: 280, // Safe for iPhone SE
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
