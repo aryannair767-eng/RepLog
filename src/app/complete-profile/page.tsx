@@ -16,7 +16,7 @@ export default function CompleteProfilePage() {
       router.push("/login");
     } else if (status === "authenticated") {
       if ((session?.user as any)?.isProfileComplete) {
-        router.push("/");
+        window.location.href = "/"; // Force refresh to lock mobile viewport
       } else if (!name && session?.user?.name) {
         setName(session.user.name);
       }
