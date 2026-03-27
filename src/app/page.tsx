@@ -918,14 +918,14 @@ function ProgressMatrixView({ refreshKey, onNavigate }: { refreshKey: number; on
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
       <section>
-        <h2 style={{ ...brandLabel(12, THEME.textPrimary), marginBottom: 16, borderLeft: `3px solid ${THEME.lime}`, paddingLeft: 12 }}>
+        <h2 style={{ ...brandLabel(12, THEME.textPrimary), marginBottom: 16, borderLeft: `3px solid ${THEME.lime}`, paddingLeft: 12, fontSize: "clamp(10px, 2vw, 14px)" }}>
           Upper Body Performance Matrix
         </h2>
         <LineChart data={upper} />
       </section>
 
       <section>
-        <h2 style={{ ...brandLabel(12, THEME.textPrimary), marginBottom: 16, borderLeft: `3px solid ${THEME.lime}`, paddingLeft: 12 }}>
+        <h2 style={{ ...brandLabel(12, THEME.textPrimary), marginBottom: 16, borderLeft: `3px solid ${THEME.lime}`, paddingLeft: 12, fontSize: "clamp(10px, 2vw, 14px)" }}>
           Lower Body Performance Matrix
         </h2>
         <LineChart data={lower} />
@@ -946,7 +946,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
 
   if (data.length === 0) return (
-    <div style={{ ...cardStyle, width: "100%", margin: "0 auto" }}>
+    <div style={{ ...cardStyle, width: "100%", maxWidth: "100%", margin: "0 auto", overflowX: "hidden" }}>
       <div style={{ padding: 40, textAlign: "center", ...monoLabel(10, THEME.textDim) }}>
         No data captured for this kinetic chain.
       </div>
@@ -956,7 +956,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
   // 1. Find all shared dates for the X-axis
   const allDates = Array.from(new Set(data.flatMap(d => d.points.map(p => p.date)))).sort();
   const dateMap = Object.fromEntries(allDates.map((d, i) => [d, i]));
-  const xMax = allDates.length - 1 || 1;
+  const xMax = Math.max(allDates.length - 1, 1);
 
   // 2. Process data for baseline visualization & breaks
   const filteredData = data.filter(ex => !removedExs.includes(ex.exerciseId));
@@ -1007,7 +1007,7 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
   const activeExData = processedData.find(d => d.exerciseId === activeExId);
 
   return (
-    <div style={{ ...cardStyle, padding: "24px 16px 16px", width: "95%", margin: "0 auto" }}>
+    <div style={{ ...cardStyle, padding: "24px 16px 16px", width: "95%", maxWidth: "100%", margin: "0 auto", overflowX: "hidden" }}>
       {/* Search/Stats Overlay when an exercise is selected */}
       {/* Wrapper fixed height prevents layout shift glitch on hover */}
       <div style={{ minHeight: 64, marginBottom: 16 }}>
@@ -1045,8 +1045,8 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
         )}
       </div>
 
-      <div style={{ position: "relative", width: "95%", maxWidth: 800, margin: "0 auto", overflowX: "auto" }}>
-        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+      <div style={{ position: "relative", width: "95%", maxWidth: "100%", margin: "0 auto", overflowX: "hidden" }}>
+        <svg width="100%" height="auto" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }} role="img" aria-label="Exercise progress line chart">
           {/* Grid Lines */}
           <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke={THEME.border} />
           {/* Baseline Indicator */}
@@ -1097,6 +1097,10 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
                       r={isActive ? 5 : 3}
                       fill={color}
                       style={{ cursor: "pointer", pointerEvents: "all" }}
+                      onTouchStart={() => {
+                        setLockedEx(lockedEx === ex.exerciseId ? null : ex.exerciseId);
+                        setTooltip({ x, y, text: `${p.weight}kg x ${p.reps}` });
+                      }}
                       onMouseEnter={() => {
                         setHoveredEx(ex.exerciseId);
                         setTooltip({ x, y, text: `${p.weight}kg x ${p.reps}` });
@@ -1121,8 +1125,8 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
         {tooltip && (
           <div style={{
             position: "absolute",
-            left: `${(tooltip.x / W) * 100}%`,
-            top: `${(tooltip.y / H) * 100}%`,
+            left: `${Math.min(Math.max((tooltip.x / W) * 100, 5), 95)}%`,
+            top: `${Math.min(Math.max((tooltip.y / H) * 100, 5), 95)}%`,
             transform: "translate(-50%, -100%)",
             marginTop: -8, // Add some offset above the cursor
             background: THEME.surface,
