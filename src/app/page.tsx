@@ -1827,7 +1827,7 @@ function PreviousSessionsModal({
             borderBottom: `1px solid ${THEME.border}`,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "flex-start",
           }}
         >
           <h2
@@ -1848,6 +1848,7 @@ function PreviousSessionsModal({
               border: "none",
               color: THEME.textMuted,
               cursor: "pointer",
+              marginLeft: "auto",
               ...monoLabel(14),
             }}
           >
@@ -1883,7 +1884,7 @@ function PreviousSessionsModal({
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     <div>
-                      <div style={{ ...monoLabel(9, THEME.limeHover) }}>{formatDate(s.startTime)}</div>
+                      <div style={{ ...monoLabel(9, THEME.lime) }}>{formatDate(s.startTime)}</div>
                       <div style={{ ...monoLabel(10, THEME.textPrimary), marginTop: 3, textTransform: "none" }}>
                         {s.name}
                       </div>
@@ -2019,6 +2020,7 @@ export default function RepLogPage() {
   const [progressRefreshKey, setProgressRefreshKey] = useState(0);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [activeBarIndex, setActiveBarIndex] = useState<number | null>(null);
+  const [barHoldTimer, setBarHoldTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const lastStatsFetchRef = useRef<number>(0);
   const liftedExercisesRef = useRef<ExerciseData[]>([]);
 
@@ -2039,6 +2041,7 @@ export default function RepLogPage() {
     };
 
     const onTouchEnd = () => {
+      if (activeTab === "library") return;
       if (!touchStartRef.current || !touchEndRef.current) return;
 
       const distance = touchStartRef.current - touchEndRef.current;
@@ -2742,7 +2745,7 @@ export default function RepLogPage() {
                           height: "100%", // important: so child height% can resolve
                         }}
                       >
-                        {activeBarIndex === i && d.totalSets > 0 && (
+                        {activeBarIndex === i && (
                           <span style={{
                             fontSize: 9,
                             fontFamily: "var(--font-main)",
@@ -2751,6 +2754,7 @@ export default function RepLogPage() {
                             letterSpacing: "-0.02em",
                             textAlign: "center",
                             marginBottom: 2,
+                            transition: "opacity 0.2s",
                           }}>
                             {d.totalSets}
                           </span>
@@ -2760,14 +2764,34 @@ export default function RepLogPage() {
                           style={{
                             width: "70%",
                             height: `${Math.max(3, (d.totalSets / maxDayVolume) * 100)}%`,
-                            background: activeBarIndex === i ? "var(--accent-glow)" : THEME.lime, cursor: "crosshair",
+                            background: THEME.lime, cursor: "crosshair",
                             transition: "height 0.6s ease, background 0.15s",
                             borderRadius: "2px 2px 0 0",
                           }}
-                          onClick={() => setActiveBarIndex(activeBarIndex === i ? null : i)}
-                          onTouchStart={() => setActiveBarIndex(activeBarIndex === i ? null : i)}
-                          onMouseEnter={(e) => ((e.target as HTMLDivElement).style.filter = "brightness(1.2)")}
-                          onMouseLeave={(e) => ((e.target as HTMLDivElement).style.filter = "none")}
+                          onClick={() => {
+                            if (barHoldTimer) clearTimeout(barHoldTimer);
+                            setActiveBarIndex(i);
+                            const timer = setTimeout(() => setActiveBarIndex(null), 3000);
+                            setBarHoldTimer(timer);
+                          }}
+                          onMouseDown={() => {
+                            if (barHoldTimer) clearTimeout(barHoldTimer);
+                            setActiveBarIndex(i);
+                          }}
+                          onTouchStart={() => {
+                            if (barHoldTimer) clearTimeout(barHoldTimer);
+                            setActiveBarIndex(i);
+                          }}
+                          onMouseUp={() => {
+                            if (barHoldTimer) clearTimeout(barHoldTimer);
+                            const timer = setTimeout(() => setActiveBarIndex(null), 3000);
+                            setBarHoldTimer(timer);
+                          }}
+                          onTouchEnd={() => {
+                            if (barHoldTimer) clearTimeout(barHoldTimer);
+                            const timer = setTimeout(() => setActiveBarIndex(null), 3000);
+                            setBarHoldTimer(timer);
+                          }}
                         />
                         <span style={monoLabel(9)}>{d.day}</span>
                       </div>
