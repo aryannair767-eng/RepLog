@@ -37,12 +37,16 @@ function monoLabel(size = 9, color = THEME.textMuted): React.CSSProperties {
 
 export default function FrequencyPage() {
   const [data, setData] = useState<{ muscle: string; frequency: number }[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       // 1. Instantly load from IndexedDB cache
       const cached = await getData(STORES.STATS, "freq_breakdown").catch(() => null);
-      if (cached) setData((cached as any).data);
+      if (cached) {
+        setData((cached as any).data);
+        setLoading(false);
+      }
       
       // 2. Fetch fresh data from server silently
       if (typeof navigator !== "undefined" && navigator.onLine) {
@@ -50,7 +54,12 @@ export default function FrequencyPage() {
           const res = await getWeeklyMuscleFrequency();
           setData(res);
           putData(STORES.STATS, { id: "freq_breakdown", data: res }).catch(() => {});
-        } catch(e) {}
+          setLoading(false);
+        } catch(e) {
+          setLoading(false);
+        }
+      } else {
+        setLoading(false);
       }
     }
     load();
@@ -63,6 +72,28 @@ export default function FrequencyPage() {
 
   // The maximum frequency any muscle could be hit in a week is 7 days
   const maxFreq = 7;
+
+  if (loading) {
+    return (
+      <div style={{ 
+        minHeight: "100vh", 
+        background: "var(--bg)", 
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "center" 
+      }}>
+        <span style={{ 
+          fontFamily: "var(--font-main)", 
+          fontSize: 12, 
+          color: "var(--accent-color)", 
+          textTransform: "uppercase", 
+          letterSpacing: "0.08em" 
+        }}>
+          Analyzing frequency data...
+        </span>
+      </div>
+    );
+  }
 
   // Helper to render a chart given data and title
   const renderChart = (title: string, chartData: { muscle: string; frequency: number }[]) => (
@@ -185,7 +216,9 @@ export default function FrequencyPage() {
       {/* HEADER */}
       <header style={{
         position: "sticky", top: 0, zIndex: 10,
-        background: "rgba(0,0,0,0.8)", backdropFilter: "blur(12px)",
+        background: "var(--header-bg)", backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(16px)",
+        transition: "background var(--transition), border-color var(--transition)",
         borderBottom: `1px solid ${THEME.border}`,
         padding: "16px 24px",
         display: "flex", alignItems: "center", gap: 16,

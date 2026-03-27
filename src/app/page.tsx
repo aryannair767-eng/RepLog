@@ -1849,6 +1849,7 @@ function PreviousSessionsModal({
               color: THEME.textMuted,
               cursor: "pointer",
               marginLeft: "auto",
+              paddingLeft: 24,
               ...monoLabel(14),
             }}
           >
@@ -2020,7 +2021,7 @@ export default function RepLogPage() {
   const [progressRefreshKey, setProgressRefreshKey] = useState(0);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [activeBarIndex, setActiveBarIndex] = useState<number | null>(null);
-  const [barHoldTimer, setBarHoldTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [barDismissTimer, setBarDismissTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const lastStatsFetchRef = useRef<number>(0);
   const liftedExercisesRef = useRef<ExerciseData[]>([]);
 
@@ -2041,7 +2042,20 @@ export default function RepLogPage() {
     };
 
     const onTouchEnd = () => {
-      if (activeTab === "library") return;
+      if (activeTab === "library") {
+        if (!touchStartRef.current || !touchEndRef.current) return;
+        const distance = touchStartRef.current - touchEndRef.current;
+        const isLeftSwipe = distance > minSwipeDistance;
+        const isRightSwipe = distance < -minSwipeDistance;
+
+        // Only allow LEFT swipe to exit library (go to progress tab)
+        // Right swipe is handled internally by the library modal
+        if (isLeftSwipe) {
+          setActiveTab("progress");
+        }
+        // Always return early — never fall through to the global handler
+        return;
+      }
       if (!touchStartRef.current || !touchEndRef.current) return;
 
       const distance = touchStartRef.current - touchEndRef.current;
@@ -2712,7 +2726,15 @@ export default function RepLogPage() {
             {/* ── Volume Distribution ─────────────────────────── */}
             <div style={{ marginBottom: 22 }}>
               {/* 7-day volume bar chart */}
-              <div style={cardStyle}>
+              <div 
+                style={cardStyle}
+                onClick={(e) => {
+                  // If the click target is not a bar, dismiss
+                  if (!(e.target as HTMLElement).closest('[data-bar="true"]')) {
+                    setActiveBarIndex(null);
+                  }
+                }}
+              >
                 <div style={{
                   borderBottom: `1px solid ${THEME.border}`,
                   padding: "7px 14px",
@@ -2745,54 +2767,56 @@ export default function RepLogPage() {
                           height: "100%", // important: so child height% can resolve
                         }}
                       >
-                        {activeBarIndex === i && (
-                          <span style={{
-                            fontSize: 9,
-                            fontFamily: "var(--font-main)",
-                            color: "var(--accent-color)",
-                            fontWeight: 900,
-                            letterSpacing: "-0.02em",
-                            textAlign: "center",
-                            marginBottom: 2,
-                            transition: "opacity 0.2s",
-                          }}>
-                            {d.totalSets}
-                          </span>
-                        )}
                         <div
-                          title={`${d.totalSets.toLocaleString()} sets`}
+                          data-bar="true"
                           style={{
                             width: "70%",
                             height: `${Math.max(3, (d.totalSets / maxDayVolume) * 100)}%`,
                             background: THEME.lime, cursor: "crosshair",
                             transition: "height 0.6s ease, background 0.15s",
                             borderRadius: "2px 2px 0 0",
+                            position: "relative",
                           }}
-                          onClick={() => {
-                            if (barHoldTimer) clearTimeout(barHoldTimer);
-                            setActiveBarIndex(i);
-                            const timer = setTimeout(() => setActiveBarIndex(null), 3000);
-                            setBarHoldTimer(timer);
-                          }}
-                          onMouseDown={() => {
-                            if (barHoldTimer) clearTimeout(barHoldTimer);
+                          onPointerDown={() => {
+                            // Clear any existing dismiss timer
+                            if (barDismissTimer) clearTimeout(barDismissTimer);
+                            // Show label immediately on press
                             setActiveBarIndex(i);
                           }}
-                          onTouchStart={() => {
-                            if (barHoldTimer) clearTimeout(barHoldTimer);
-                            setActiveBarIndex(i);
+                          onPointerUp={() => {
+                            // On release: dismiss after 3 seconds
+                            const t = setTimeout(() => setActiveBarIndex(null), 3000);
+                            setBarDismissTimer(t);
                           }}
-                          onMouseUp={() => {
-                            if (barHoldTimer) clearTimeout(barHoldTimer);
-                            const timer = setTimeout(() => setActiveBarIndex(null), 3000);
-                            setBarHoldTimer(timer);
+                          onPointerLeave={() => {
+                            // If user drags off: dismiss after 3 seconds
+                            const t = setTimeout(() => setActiveBarIndex(null), 3000);
+                            setBarDismissTimer(t);
                           }}
-                          onTouchEnd={() => {
-                            if (barHoldTimer) clearTimeout(barHoldTimer);
-                            const timer = setTimeout(() => setActiveBarIndex(null), 3000);
-                            setBarHoldTimer(timer);
-                          }}
-                        />
+                        >
+                          {activeBarIndex === i && (
+                            <div style={{
+                              position: "absolute",
+                              left: "calc(100% + 6px)",
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              background: "var(--surface-solid, var(--surface))",
+                              border: "1px solid var(--accent-color)",
+                              borderRadius: 4,
+                              padding: "2px 7px",
+                              whiteSpace: "nowrap",
+                              fontSize: 9,
+                              fontFamily: "var(--font-main)",
+                              color: "var(--accent-color)",
+                              fontWeight: 900,
+                              letterSpacing: "-0.01em",
+                              zIndex: 10,
+                              pointerEvents: "none",
+                            }}>
+                              {d.totalSets} Sets
+                            </div>
+                          )}
+                        </div>
                         <span style={monoLabel(9)}>{d.day}</span>
                       </div>
                     ))}
