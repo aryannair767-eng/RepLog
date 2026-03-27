@@ -2018,6 +2018,7 @@ export default function RepLogPage() {
   const [previousSessionsLoading, setPreviousSessionsLoading] = useState(false);
   const [progressRefreshKey, setProgressRefreshKey] = useState(0);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [activeBarIndex, setActiveBarIndex] = useState<number | null>(null);
   const lastStatsFetchRef = useRef<number>(0);
   const liftedExercisesRef = useRef<ExerciseData[]>([]);
 
@@ -2653,11 +2654,12 @@ export default function RepLogPage() {
                 </button>
               </div>
             )}
+            
             {/* ── Top 4 Stat Cards ──────────────────────────── */}
             {/* Order: Weekly Volume → Frequency → Avg RIR → Intensity Score */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gridTemplateColumns: "repeat(2, 1fr)",
               gap: 18, marginBottom: 22,
             }}>
               <Link href="/volume" style={{ textDecoration: "none" }}>
@@ -2704,12 +2706,8 @@ export default function RepLogPage() {
               />
             </div>
 
-            {/* ── Volume Chart + PRs ────────────────────────── */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 18, marginBottom: 22,
-            }}>
+            {/* ── Volume Distribution ─────────────────────────── */}
+            <div style={{ marginBottom: 22 }}>
               {/* 7-day volume bar chart */}
               <div style={cardStyle}>
                 <div style={{
@@ -2744,15 +2742,30 @@ export default function RepLogPage() {
                           height: "100%", // important: so child height% can resolve
                         }}
                       >
+                        {activeBarIndex === i && d.totalSets > 0 && (
+                          <span style={{
+                            fontSize: 9,
+                            fontFamily: "var(--font-main)",
+                            color: "var(--accent-color)",
+                            fontWeight: 900,
+                            letterSpacing: "-0.02em",
+                            textAlign: "center",
+                            marginBottom: 2,
+                          }}>
+                            {d.totalSets}
+                          </span>
+                        )}
                         <div
                           title={`${d.totalSets.toLocaleString()} sets`}
                           style={{
                             width: "70%",
                             height: `${Math.max(3, (d.totalSets / maxDayVolume) * 100)}%`,
-                            background: THEME.lime, cursor: "crosshair",
+                            background: activeBarIndex === i ? "var(--accent-glow)" : THEME.lime, cursor: "crosshair",
                             transition: "height 0.6s ease, background 0.15s",
                             borderRadius: "2px 2px 0 0",
                           }}
+                          onClick={() => setActiveBarIndex(activeBarIndex === i ? null : i)}
+                          onTouchStart={() => setActiveBarIndex(activeBarIndex === i ? null : i)}
                           onMouseEnter={(e) => ((e.target as HTMLDivElement).style.filter = "brightness(1.2)")}
                           onMouseLeave={(e) => ((e.target as HTMLDivElement).style.filter = "none")}
                         />
@@ -2762,8 +2775,10 @@ export default function RepLogPage() {
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Recent PRs */}
+            {/* ── Critical Benchmarks ─────────────────────────── */}
+            <div style={{ marginBottom: 22 }}>
               <div style={cardStyle}>
                 <div style={{
                   borderBottom: `1px solid ${THEME.border}`,
