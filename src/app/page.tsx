@@ -2082,7 +2082,7 @@ export default function RepLogPage() {
   // Detects horizontal swipes to switch between Dashboard, Logger, Progress, Library
   const touchStartRef = useRef<number | null>(null);
   const touchEndRef = useRef<number | null>(null);
-  const minSwipeDistance = 70; // min pixels to trigger a swipe
+  const minSwipeDistance = 110; // min pixels to trigger a swipe
 
   useEffect(() => {
     const onTouchStart = (e: TouchEvent) => {
@@ -3211,7 +3211,7 @@ export default function RepLogPage() {
               setLibTab={setLibTab}
               onExerciseCreated={(ex) => {
                 liftedExercisesRef.current = [
-                  ...liftedExercisesRef.current, 
+                  ...liftedExercisesRef.current,
                   ex
                 ];
               }}
@@ -3261,7 +3261,7 @@ export default function RepLogPage() {
           setLibTab={setLibTab}
           onExerciseCreated={(ex) => {
             liftedExercisesRef.current = [
-              ...liftedExercisesRef.current, 
+              ...liftedExercisesRef.current,
               ex
             ];
           }}
