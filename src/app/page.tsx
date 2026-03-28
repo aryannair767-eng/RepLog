@@ -636,7 +636,6 @@ const ExerciseCard = React.memo(function ExerciseCard({
     } catch {
       // Revert if even the local-first addition failed (rare)
       // setSets((prev) => prev.filter((s) => s.id !== tempId));
-      setError("Set added to local cache. Sync pending.");
     }
   };
 
@@ -1271,6 +1270,7 @@ type ExerciseLibraryModalProps = {
   isPage?: boolean;
   libTab: "general" | "personal";
   setLibTab: (tab: "general" | "personal") => void;
+  onExerciseCreated?: (ex: ExerciseData) => void;
 };
 
 function ExerciseLibraryModal({
@@ -1280,6 +1280,7 @@ function ExerciseLibraryModal({
   isPage = false,
   libTab,
   setLibTab,
+  onExerciseCreated,
 }: ExerciseLibraryModalProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ExerciseData[]>([]);
@@ -1296,7 +1297,7 @@ function ExerciseLibraryModal({
   // ── Swipe between General / Personal ─────────────────────────
   const libTouchStartRef = useRef<number | null>(null);
   const libTouchEndRef = useRef<number | null>(null);
-  const handleLibSwipe = () => {};
+  const handleLibSwipe = () => { };
 
   // Fetch library initially
   useEffect(() => {
@@ -1369,6 +1370,14 @@ function ExerciseLibraryModal({
     setCreating(true);
     try {
       const id = await createLoggableExercise(query.trim(), muscleName);
+      const newEx: ExerciseData = {
+        id,
+        name: query.trim(),
+        primaryMuscle: muscleName,
+        secondaryMuscle: null,
+        mechanics: "Custom",
+      };
+      if (onExerciseCreated) onExerciseCreated(newEx);
       await onSelect(id);
       onClose();
     } catch (err) {
@@ -1764,11 +1773,11 @@ function SessionDetailView({
             <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", margin: 0 }}>{sessionData.name}</h2>
             <div style={{ ...monoLabel(9, THEME.lime), marginTop: 4 }}>{formatDate(sessionData.startTime)}</div>
           </div>
-          <button onClick={onBack} style={{ 
-            ...brandButton, 
-            padding: "6px 16px", 
-            display: "flex", 
-            alignItems: "center", 
+          <button onClick={onBack} style={{
+            ...brandButton,
+            padding: "6px 16px",
+            display: "flex",
+            alignItems: "center",
             gap: 6,
             color: btnTextColor,
           }}>
@@ -2383,7 +2392,7 @@ export default function RepLogPage() {
 
     // STEP 3: Fire IndexedDB and server calls in background —
     // do NOT await these before the UI update above
-    putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => {});
+    putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => { });
 
     try {
       // Server call — reconcile after completion
@@ -2391,7 +2400,7 @@ export default function RepLogPage() {
       const serverSession = await getActiveSession();
       if (serverSession) {
         setSession(serverSession);
-        putData(STORES.SESSIONS, { ...serverSession, id: "active" }).catch(() => {});
+        putData(STORES.SESSIONS, { ...serverSession, id: "active" }).catch(() => { });
       }
     } catch (e) {
       console.error("Failed to add exercise:", e);
@@ -2756,7 +2765,7 @@ export default function RepLogPage() {
                 </button>
               </div>
             )}
-            
+
             {/* ── Top 4 Stat Cards ──────────────────────────── */}
             {/* Order: Weekly Volume → Frequency → Avg RIR → Intensity Score */}
             <div style={{
@@ -2811,7 +2820,7 @@ export default function RepLogPage() {
             {/* ── Volume Distribution ─────────────────────────── */}
             <div style={{ marginBottom: 22 }}>
               {/* 7-day volume bar chart */}
-              <div 
+              <div
                 style={cardStyle}
                 onClick={(e) => {
                   // If the click target is not a bar, dismiss
@@ -3200,6 +3209,12 @@ export default function RepLogPage() {
               isPage
               libTab={libTab}
               setLibTab={setLibTab}
+              onExerciseCreated={(ex) => {
+                liftedExercisesRef.current = [
+                  ...liftedExercisesRef.current, 
+                  ex
+                ];
+              }}
               onSelect={async (id) => {
                 await handleAddExercise(id);
               }}
@@ -3244,6 +3259,12 @@ export default function RepLogPage() {
         <ExerciseLibraryModal
           libTab={libTab}
           setLibTab={setLibTab}
+          onExerciseCreated={(ex) => {
+            liftedExercisesRef.current = [
+              ...liftedExercisesRef.current, 
+              ex
+            ];
+          }}
           onSelect={async (id) => {
             await handleAddExercise(id);
             setActiveTab("logger");
