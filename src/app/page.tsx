@@ -2134,8 +2134,10 @@ export default function RepLogPage() {
         if (localExercises) {
           liftedExercisesRef.current = (localExercises as any).data || [];
         }
-        if (localSession) {
+        if (localSession && (localSession as WorkoutSessionData).isActive) {
           setSession(localSession as WorkoutSessionData);
+          setSessionLoading(false);
+        } else {
           setSessionLoading(false);
         }
         if (localStats) {
