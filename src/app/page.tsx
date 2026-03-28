@@ -2094,6 +2094,12 @@ export default function RepLogPage() {
   const userName = authSession?.user?.name?.split(" ")[0] || "Athlete";
   const userEmail = authSession?.user?.email || "";
 
+  // Helper for dynamic text color based on accent color
+  const accentIsDark = ["#000000", "#000", "#1e293b", "#334155"].some(
+    dark => accentColor.toLowerCase() === dark.toLowerCase()
+  );
+  const sessionBtnTextColor = accentIsDark ? "#ffffff" : "#000000";
+
   // ── Data Isolation: clear local caches when user changes ───
   useEffect(() => {
     const currentUserId = authSession?.user?.email;
@@ -3013,8 +3019,8 @@ export default function RepLogPage() {
                   disabled={actionLoading}
                   style={{
                     width: "100%", padding: "14px",
-                    background: "var(--accent-color)", color: "#000",
-                    border: "none", ...monoLabel(11, "#000"),
+                    background: "var(--accent-color)", color: sessionBtnTextColor,
+                    border: "none", ...monoLabel(11, sessionBtnTextColor),
                     fontWeight: 900, cursor: "pointer",
                     borderRadius: "var(--radius)",
                     fontSize: 13, letterSpacing: "0.15em",
