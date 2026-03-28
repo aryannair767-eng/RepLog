@@ -1726,7 +1726,7 @@ function SessionDetailView({
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${THEME.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", margin: 0 }}>{sessionData.name}</h2>
-            <div style={{ ...monoLabel(9, THEME.limeHover), marginTop: 4 }}>{formatDate(sessionData.startTime)}</div>
+            <div style={{ ...monoLabel(9, THEME.lime), marginTop: 4 }}>{formatDate(sessionData.startTime)}</div>
           </div>
           <button onClick={onBack} style={{ ...brandButton, padding: "6px 16px", display: "flex", alignItems: "center", gap: 6 }}>
             ← BACK
@@ -2095,7 +2095,7 @@ export default function RepLogPage() {
   const userEmail = authSession?.user?.email || "";
 
   // Helper for dynamic text color based on accent color
-  const accentIsDark = ["#000000", "#000", "#1e293b", "#334155"].some(
+  const accentIsDark = ["#000000", "#000", "#1e293b", "#334155", "#64748b", "#475569"].some(
     dark => accentColor.toLowerCase() === dark.toLowerCase()
   );
   const sessionBtnTextColor = accentIsDark ? "#ffffff" : "#000000";
@@ -3019,8 +3019,8 @@ export default function RepLogPage() {
                   disabled={actionLoading}
                   style={{
                     width: "100%", padding: "14px",
-                    background: "var(--accent-color)", color: sessionBtnTextColor,
-                    border: "none", ...monoLabel(11, sessionBtnTextColor),
+                    background: "var(--accent-color)", color: "var(--accent-contrast)",
+                    border: "none", ...monoLabel(11, "var(--accent-contrast)"),
                     fontWeight: 900, cursor: "pointer",
                     borderRadius: "var(--radius)",
                     fontSize: 13, letterSpacing: "0.15em",
