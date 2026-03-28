@@ -26,6 +26,7 @@ function getWeekStart(): Date {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
+  unstable_noStore();
   const userId = await getAuthUserId();
   const weekStart = getWeekStart();
   const thirtyDaysAgo = new Date();
@@ -141,6 +142,7 @@ export async function getGeneralExercises() {
 // ── getPersonalExercises ────────────────────────────────────────
 // Returns all exercises the user created themselves.
 export async function getPersonalExercises() {
+  unstable_noStore();
   const userId = await getAuthUserId();
   return prisma.exercise.findMany({
     where: { mechanics: "Custom", userId },
@@ -195,6 +197,7 @@ export async function createLoggableExercise(name: string, primaryMuscle: string
 // ── getWeeklyMuscleVolume ───────────────────────────────────────
 // Returns an array of { muscle: string, sets: number } for the past 7 days.
 export async function getWeeklyMuscleVolume() {
+  unstable_noStore();
   const userId = await getAuthUserId();
   const weekStart = getWeekStart();
 
@@ -231,6 +234,7 @@ export async function getWeeklyMuscleVolume() {
 // Returns an array of { muscle: string, frequency: number } for this week.
 // Frequency = number of distinct days the muscle was trained.
 export async function getWeeklyMuscleFrequency() {
+  unstable_noStore();
   const userId = await getAuthUserId();
   const weekStart = getWeekStart();
 
@@ -273,6 +277,7 @@ export async function getWeeklyMuscleFrequency() {
 // ── getAvgRirByMuscle ──────────────────────────────────────────
 // Returns all muscles with their average RIR: { muscle, avgRir, totalSets }[]
 export async function getAvgRirByMuscle() {
+  unstable_noStore();
   const userId = await getAuthUserId();
 
   const allCompletedSets = await prisma.setLog.findMany({
@@ -309,6 +314,7 @@ export async function getAvgRirByMuscle() {
 // ── getExerciseRirForMuscle ────────────────────────────────────
 // Drill-down: returns exercises for a specific muscle with their avg RIR.
 export async function getExerciseRirForMuscle(muscle: string) {
+  unstable_noStore();
   const userId = await getAuthUserId();
 
   const sets = await prisma.setLog.findMany({

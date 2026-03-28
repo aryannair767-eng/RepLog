@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { startOfWeek, endOfWeek, subDays, format } from "date-fns";
 import { getAuthUserId } from "@/lib/auth";
+import { unstable_noStore } from "next/cache";
 
 export interface ProgressPoint {
   date: string; // ISO or formatted
@@ -47,6 +48,7 @@ function getCategory(muscle: string): "Upper" | "Lower" {
  * Aggregates the BEST set (highest weight-priority score) per exercise per session.
  */
 export async function getHistoricalProgress(): Promise<ExerciseProgress[]> {
+  unstable_noStore();
   const userId = await getAuthUserId();
   // 1. Fetch all completed sets with their exercise data and session date
   const allSets = await prisma.setLog.findMany({
