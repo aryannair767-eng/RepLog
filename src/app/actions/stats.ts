@@ -88,8 +88,18 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const volumeByDay = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => {
     const target = new Date(weekStart);
     target.setDate(weekStart.getDate() + i);
-    const targetStr = target.toDateString();
-    return { day, totalSets: thisWeekSets.filter(s => new Date(s.workoutLog.session.startTime).toDateString() === targetStr).length };
+    target.setHours(0, 0, 0, 0); // Normalize to midnight
+    const targetEnd = new Date(target);
+    targetEnd.setDate(target.getDate() + 1);
+    targetEnd.setHours(0, 0, 0, 0);
+    
+    return { 
+      day, 
+      totalSets: thisWeekSets.filter(s => {
+        const sessionDate = new Date(s.workoutLog.session.startTime);
+        return sessionDate >= target && sessionDate < targetEnd;
+      }).length 
+    };
   });
 
   const prMap = new Map<string, { weight: number; date: string }>();

@@ -504,11 +504,13 @@ const ExerciseCard = React.memo(function ExerciseCard({
   onRemove,
   onEdit,
   showTimer = true,
+  onStatsRefresh,
 }: {
   log: WorkoutLogData;
   onRemove: (id: string) => void;
-  onEdit: (id: string) => void;
+  onEdit: (logId: string) => void;
   showTimer?: boolean;
+  onStatsRefresh: () => void;
 }) {
   // Local copy of sets — allows instant UI updates without waiting for DB
   const [sets, setSets] = useState<SetLogData[]>(log.sets);
@@ -548,6 +550,9 @@ const ExerciseCard = React.memo(function ExerciseCard({
     try {
       // Step 2: save to server
       await toggleSetComplete(setId, newVal);
+      
+      // Step 3: refresh stats to update volume distribution immediately
+      onStatsRefresh();
     } catch {
       // Step 3: revert on failure (optionally)
       // setError("Connection lost — action queued."); 
@@ -2342,6 +2347,13 @@ export default function RepLogPage() {
     }
   };
 
+  // ── handleStatsRefresh ───────────────────────────────────────
+  const handleStatsRefresh = useCallback(async () => {
+    const newStats = await getDashboardStats();
+    setStats(newStats);
+    putData(STORES.STATS, { ...newStats, id: "current" }).catch(() => { });
+  }, []);
+
   // ── handleAddExercise ─────────────────────────────────────────
   const handleAddExercise = async (exerciseId: string) => {
     if (swapTargetLogId) {
@@ -3192,6 +3204,7 @@ export default function RepLogPage() {
                         setIsLibraryOpen(true);
                       }}
                       showTimer={showRestTimer}
+                      onStatsRefresh={handleStatsRefresh}
                     />
                   ))}
               </div>
