@@ -99,6 +99,7 @@ export async function addSet(workoutLogId: string): Promise<string> {
     },
   });
 
+  revalidatePath("/");
   return newSet.id;
 }
 
@@ -124,6 +125,7 @@ export async function updateSetField(
     where: { id: setId, workoutLog: { session: { userId } } },
     data: { [field]: clamped },
   });
+  revalidatePath("/");
 }
 
 // ── toggleSetComplete ─────────────────────────────────────────
@@ -141,6 +143,7 @@ export async function toggleSetComplete(
     where: { id: setId, workoutLog: { session: { userId } } },
     data: { isCompleted },
   });
+  revalidatePath("/");
 }
 
 // ── removeExercise ────────────────────────────────────────────

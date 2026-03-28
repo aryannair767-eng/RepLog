@@ -2249,9 +2249,6 @@ export default function RepLogPage() {
   // Refresh stats whenever switching to Dashboard or Progress tab (with staleness check)
   useEffect(() => {
     if (activeTab === "dashboard" || activeTab === "progress") {
-      const now = Date.now();
-      if (now - lastStatsFetchRef.current < 5000) return;
-      lastStatsFetchRef.current = now;
       (async () => {
         const newerStats = await getDashboardStats();
         setStats(newerStats);
