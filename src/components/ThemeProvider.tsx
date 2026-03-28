@@ -81,12 +81,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     // Auto-swap Lime for Teal in Light mode as requested
     const effectiveAccent = (mode === "light" && accentColor.toLowerCase() === "#ccff00") ? "#0D9488" : accentColor;
-    
+
     root.style.setProperty("--accent-color", effectiveAccent);
     root.style.setProperty("--primary", effectiveAccent);
     root.style.setProperty("--ring", effectiveAccent);
     root.style.setProperty("--accent", effectiveAccent);
-    
+
     // Convert hex to RGB for semi-transparent variants
     let r = 204, g = 255, b = 0;
     if (accentColor.startsWith("#")) {
@@ -97,11 +97,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         b = parseInt(hex.substring(4, 6), 16);
       }
     }
-    
+
     const glow = `rgba(${r}, ${g}, ${b}, 0.3)`;
     root.style.setProperty("--accent-rgb", `${r}, ${g}, ${b}`);
     root.style.setProperty("--accent-glow", glow);
-    root.style.setProperty("--glow-primary", mode === "dark" ? `0 0 20px ${glow}` : `0 4px 12px rgba(0,0,0,0.08)`);
+    root.style.setProperty("--glow-primary", mode === "dark" ? `0 0 10px ${glow}` : `0 4px 12px rgba(0,0,0,0.08)`);
     root.style.setProperty("--done-border", `rgba(${r}, ${g}, ${b}, 0.3)`);
     root.style.setProperty("--done-bg", `rgba(${r}, ${g}, ${b}, 0.06)`);
 
