@@ -550,7 +550,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
     try {
       // Step 2: save to server
       await toggleSetComplete(setId, newVal);
-      
+
       // Step 3: refresh stats to update volume distribution immediately
       onStatsRefresh();
     } catch {
@@ -2322,12 +2322,7 @@ export default function RepLogPage() {
       );
       const isEmpty = session.logs.length === 0 || totalCompletedSets === 0;
 
-      if (isEmpty) {
-        // Auto-delete empty sessions instead of saving them
-        await deleteSession(session.id);
-      } else {
-        await endSession(session.id);
-      }
+      await endSession(session.id);
 
       setSession(null);
       // Remove from active cache but could store in history if needed

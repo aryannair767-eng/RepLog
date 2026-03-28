@@ -165,7 +165,7 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
     endTime: s.endTime?.toISOString() || null,
     logCount: s._count.logs,
     completedSetCount: s.logs.reduce((sum, log) => sum + log._count.sets, 0),
-  })).filter(s => s.completedSetCount > 0);
+  }));
 }
 
 // ── getSessionDetail ─────────────────────────────────────────
