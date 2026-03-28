@@ -67,24 +67,23 @@ export default function RirBreakdownPage() {
 
   useEffect(() => {
     async function load() {
-      // 1. Instantly load from IndexedDB cache
-      const cached = await getData(STORES.STATS, "rir_breakdown").catch(() => null);
-      if (cached) {
-        setData((cached as any).data);
-        setLoading(false);
-      }
-
-      // 2. Fetch fresh data from server silently
+      // 1. Fetch fresh data from server first
       if (typeof navigator !== "undefined" && navigator.onLine) {
         try {
           const res = await getAvgRirByMuscle();
           setData(res);
-          setLoading(false);
           putData(STORES.STATS, { id: "rir_breakdown", data: res }).catch(() => {});
+          setLoading(false);
+          return;
         } catch(e) {}
-      } else {
-        setLoading(false);
       }
+      
+      // 2. Fallback to IndexedDB cache
+      const cached = await getData(STORES.STATS, "rir_breakdown").catch(() => null);
+      if (cached) {
+        setData((cached as any).data);
+      }
+      setLoading(false);
     }
     load();
   }, []);

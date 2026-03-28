@@ -37,27 +37,39 @@ function monoLabel(size = 10, color = THEME.textMuted): React.CSSProperties {
 
 export default function VolumePage() {
   const [data, setData] = useState<{ muscle: string; sets: number }[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      // 1. Instantly load from IndexedDB cache
-      const cached = await getData(STORES.STATS, "volume_breakdown").catch(() => null);
-      if (cached) setData((cached as any).data);
-      
-      // 2. Fetch fresh data from server silently
       if (typeof navigator !== "undefined" && navigator.onLine) {
         try {
           const res = await getWeeklyMuscleVolume();
           setData(res);
           putData(STORES.STATS, { id: "volume_breakdown", data: res }).catch(() => {});
+          setLoading(false);
+          return;
         } catch(e) {}
       }
+      
+      const cached = await getData(STORES.STATS, "volume_breakdown").catch(() => null);
+      if (cached) setData((cached as any).data);
+      setLoading(false);
     }
     load();
   }, []);
   
   // Find the max sets to scale the bar chart properly
   const maxSets = data.length > 0 ? Math.max(...data.map(d => d.sets)) : 1;
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontFamily: "var(--font-main)", fontSize: 12, color: "var(--accent-color)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          Analyzing volume data...
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div style={{

@@ -66,20 +66,27 @@ export default function MuscleExerciseRirPage() {
   const muscle = decodeURIComponent(params.muscle as string);
 
   const [data, setData] = useState<ExerciseRirData[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       const cacheKey = `rir_muscle_${muscle}`;
-      const cached = await getData(STORES.STATS, cacheKey).catch(() => null);
-      if (cached) setData((cached as any).data);
       
+      // 1. Fetch fresh data from server first
       if (typeof navigator !== "undefined" && navigator.onLine) {
         try {
           const res = await getExerciseRirForMuscle(muscle);
           setData(res);
           putData(STORES.STATS, { id: cacheKey, data: res }).catch(() => {});
+          setLoading(false);
+          return;
         } catch(e) {}
       }
+      
+      // 2. Fallback to IndexedDB cache
+      const cached = await getData(STORES.STATS, cacheKey).catch(() => null);
+      if (cached) setData((cached as any).data);
+      setLoading(false);
     }
     load();
   }, [muscle]);
@@ -90,6 +97,14 @@ export default function MuscleExerciseRirPage() {
         data.reduce((sum, d) => sum + d.totalSets, 0)) * 10
       ) / 10
     : 0;
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: THEME.black, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={monoLabel(12, THEME.lime)}>Analyzing {muscle} data...</span>
+      </div>
+    );
+  }
 
   return (
     <div style={{

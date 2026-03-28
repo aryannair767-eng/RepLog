@@ -41,26 +41,25 @@ export default function FrequencyPage() {
 
   useEffect(() => {
     async function load() {
-      // 1. Instantly load from IndexedDB cache
-      const cached = await getData(STORES.STATS, "freq_breakdown").catch(() => null);
-      if (cached) {
-        setData((cached as any).data);
-        setLoading(false);
-      }
-      
-      // 2. Fetch fresh data from server silently
+      // 1. Fetch fresh data from server first
       if (typeof navigator !== "undefined" && navigator.onLine) {
         try {
           const res = await getWeeklyMuscleFrequency();
           setData(res);
           putData(STORES.STATS, { id: "freq_breakdown", data: res }).catch(() => {});
           setLoading(false);
+          return; // Done
         } catch(e) {
-          setLoading(false);
+          // Fallback to cache on error
         }
-      } else {
-        setLoading(false);
       }
+      
+      // 2. Fallback to IndexedDB cache (Offline or server fail)
+      const cached = await getData(STORES.STATS, "freq_breakdown").catch(() => null);
+      if (cached) {
+        setData((cached as any).data);
+      }
+      setLoading(false);
     }
     load();
   }, []);

@@ -2083,6 +2083,7 @@ export default function RepLogPage() {
   const [barDismissTimer, setBarDismissTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [libTab, setLibTab] = useState<"general" | "personal">("general");
   const lastStatsFetchRef = useRef<number>(0);
+  const statsRefreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const liftedExercisesRef = useRef<ExerciseData[]>([]);
 
   // ── Swipe Navigation for Mobile ──────────────────────────────
@@ -2342,25 +2343,49 @@ export default function RepLogPage() {
   };
 
   // ── handleStatsRefresh ───────────────────────────────────────
-  const handleStatsRefresh = useCallback(async () => {
-    const newStats = await getDashboardStats();
-    setStats(newStats);
-    putData(STORES.STATS, { ...newStats, id: "current" }).catch(() => { });
+  const handleStatsRefresh = useCallback(() => {
+    if (statsRefreshDebounceRef.current) clearTimeout(statsRefreshDebounceRef.current);
+    statsRefreshDebounceRef.current = setTimeout(async () => {
+      try {
+        const newStats = await getDashboardStats();
+        setStats(newStats);
+        await putData(STORES.STATS, { ...newStats, id: "current" });
+      } catch (e) { }
+    }, 1500); // 1.5s debounce to stop DB spam
   }, []);
 
   // ── handleAddExercise ─────────────────────────────────────────
   const handleAddExercise = async (exerciseId: string) => {
     if (swapTargetLogId) {
+      // Optimitistic UI for swapping
+      const newEx = liftedExercisesRef.current.find(e => e.id === exerciseId);
+      if (session && newEx) {
+        const swappedSession = {
+          ...session,
+          logs: session.logs.map(l => {
+            if (l.id === swapTargetLogId) {
+              return { 
+                ...l, 
+                exerciseId, 
+                exercise: { id: newEx.id, name: newEx.name, primaryMuscle: newEx.primaryMuscle, secondaryMuscle: newEx.secondaryMuscle, mechanics: newEx.mechanics }
+              };
+            }
+            return l;
+          })
+        };
+        setSession(swappedSession);
+        putData(STORES.SESSIONS, { ...swappedSession, id: "active" }).catch(() => {});
+      }
+
+      setIsLibraryOpen(false);
+      setSwapTargetLogId(null);
+
+      // Background sync
       try {
         await updateWorkoutLogExercise(swapTargetLogId, exerciseId);
-        setSwapTargetLogId(null);
-        const updated = await getActiveSession();
-        setSession(updated);
-        if (updated) await putData(STORES.SESSIONS, { ...updated, id: "active" });
       } catch (e) {
         console.error("Failed to swap exercise:", e);
       }
-      setIsLibraryOpen(false);
       return;
     }
 
@@ -2401,13 +2426,21 @@ export default function RepLogPage() {
     putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => { });
 
     try {
-      // Server call — reconcile after completion
-      await addExerciseToSession(session.id, exerciseId);
-      const serverSession = await getActiveSession();
-      if (serverSession) {
-        setSession(serverSession);
-        putData(STORES.SESSIONS, { ...serverSession, id: "active" }).catch(() => { });
-      }
+      // Server call — reconcile instantly via returned object
+      const { logId, setId } = await addExerciseToSession(session.id, exerciseId);
+      
+      const serverSession = {
+        ...optimisticSession,
+        logs: optimisticSession.logs.map(l => {
+          if (l.id === tempLogId) {
+            return { ...l, id: logId, sets: [{ ...l.sets[0], id: setId }] };
+          }
+          return l;
+        })
+      };
+      
+      setSession(serverSession);
+      putData(STORES.SESSIONS, { ...serverSession, id: "active" }).catch(() => { });
     } catch (e) {
       console.error("Failed to add exercise:", e);
     }
@@ -2451,19 +2484,10 @@ export default function RepLogPage() {
       await putData(STORES.SESSIONS, { ...updatedSession, id: "active" });
     }
 
-    // Background server sync — don't block on re-fetch
+    // Background server sync — completely instant
     removeExercise(workoutLogId)
-      .then(() => getActiveSession())
-      .then((updated) => {
-        if (updated) {
-          setSession(updated);
-          putData(STORES.SESSIONS, { ...updated, id: "active" });
-        }
-      })
-      .then(() => getDashboardStats())
-      .then((newStats) => {
-        setStats(newStats);
-        putData(STORES.STATS, { ...newStats, id: "current" }).catch(() => {});
+      .then(() => {
+        handleStatsRefresh(); // Batched debounced stats refresh
         setProgressRefreshKey((k) => k + 1);
       })
       .catch((e) => console.error("Failed to remove exercise:", e));

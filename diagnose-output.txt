@@ -1,0 +1,15 @@
+﻿=== USERS ===
+  id=cmnapzg9000006878cqkmquim  email=aryannair767@gmail.com  name=Aryan Nair
+
+=== SESSIONS ===
+  id=cmnascacw0001nsorvbynt7zv  userId=cmnapzg9000006878cqkmquim  active=true  startTime=2026-03-28T20:31:08.144Z  logs=0
+
+=== SETS ===
+
+=== WEEK START: 2026-03-21T18:30:00.000Z ===
+
+Querying stats for userId: cmnapzg9000006878cqkmquim
+  thisWeekSets (completed, this week, this user): 0
+  allCompletedSets (no user filter): 0
+  allUserSets (this user, no date filter): 0
+  allSetsThisWeek (this user, this week, any completion): 0

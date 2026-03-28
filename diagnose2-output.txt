@@ -1,0 +1,16 @@
+﻿Total exercises in DB: 120
+Sample exercise IDs:
+  cmnapqlyy0001xncx1izcmrpm ΓåÆ Barbell Bench Press
+  cmnapqlzv0003xncxqsn1f855 ΓåÆ Incline Barbell Bench Press
+  cmnapqm0i0005xncx4xubhmo5 ΓåÆ Decline Barbell Bench Press
+
+Total workout_logs: 0
+
+Session userId: cmnapzg9000006878cqkmquim
+User id: cmnapzg9000006878cqkmquim
+Match: true
+
+=== ATTEMPTING TEST INSERT ===
+Using sessionId=cmnascacw0001nsorvbynt7zv, exerciseId=cmnapqlyy0001xncx1izcmrpm
+SUCCESS! Created workoutLog: cmnasxd6w0001evafch6zs0e5 with 1 set(s)
+Stats query now returns: 1 set(s)

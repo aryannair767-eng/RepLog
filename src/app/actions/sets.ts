@@ -23,7 +23,7 @@ import { getAuthUserId } from "@/lib/auth";
 export async function addExerciseToSession(
   sessionId: string,
   exerciseId: string
-): Promise<string> {
+): Promise<{ logId: string, setId: string }> {
   const userId = await getAuthUserId();
   const session = await prisma.workoutSession.findUnique({ where: { id: sessionId }});
   if (session?.userId !== userId) throw new Error("Unauthorized");
@@ -51,10 +51,11 @@ export async function addExerciseToSession(
         },
       },
     },
+    include: { sets: true }
   });
 
   revalidatePath("/");
-  return log.id;
+  return { logId: log.id, setId: log.sets[0].id };
 }
 
 // ── updateWorkoutLogExercise ──────────────────────────────────
