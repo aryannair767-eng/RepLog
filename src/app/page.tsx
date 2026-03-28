@@ -20,7 +20,7 @@
 // 3. Add a new <StatCard /> below in the "Top Tier Metrics" section
 // ============================================================
 
-import {
+import React, {
   useState,
   useEffect,
   useCallback,
@@ -388,7 +388,7 @@ function RestTimer({ triggerReset }: { triggerReset: number }) {
 }
 
 // ── SetRow ─────────────────────────────────────────────────────
-function SetRow({
+const SetRow = React.memo(function SetRow({
   set, index, onToggle, onFieldChange, onRemoveSet,
 }: {
   set: SetLogData;
@@ -492,14 +492,14 @@ function SetRow({
       </div>
     </div>
   );
-}
+});
 
 // ============================================================
 // 4. EXERCISE CARD
 // One card per exercise added to the current session.
 // Handles its own optimistic state for instant UI feedback.
 // ============================================================
-function ExerciseCard({
+const ExerciseCard = React.memo(function ExerciseCard({
   log,
   onRemove,
   onEdit,
@@ -512,6 +512,8 @@ function ExerciseCard({
 }) {
   // Local copy of sets — allows instant UI updates without waiting for DB
   const [sets, setSets] = useState<SetLogData[]>(log.sets);
+  // Reset key — forces SetRow remount when inputs are cleared
+  const [resetKey, setResetKey] = useState(0);
   // Error message shown in red if a DB save fails
   const [error, setError] = useState<string | null>(null);
   // Increments each time a set is completed — triggers the rest timer
@@ -559,24 +561,27 @@ function ExerciseCard({
       // Instant local React state update
       setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: value } : s));
 
-      // Instant IndexedDB update for offline persistence
-      (async () => {
-        const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
-        if (localSession) {
-          const updatedLogs = localSession.logs.map(l => {
-            if (l.id === log.id) {
-              return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: value } : s) };
-            }
-            return l;
-          });
-          await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
-        }
-      })();
-
-      // Debounce the server write
+      // Debounce BOTH IndexedDB and server writes together
       const key = `${setId}-${field}`;
       clearTimeout(debounceRef.current[key]);
       debounceRef.current[key] = setTimeout(async () => {
+        // IndexedDB update
+        try {
+          const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+          if (localSession) {
+            const updatedLogs = localSession.logs.map(l => {
+              if (l.id === log.id) {
+                return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: value } : s) };
+              }
+              return l;
+            });
+            await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
+          }
+        } catch {
+          // IndexedDB write failed — non-critical
+        }
+
+        // Server write
         try {
           await updateSetField(setId, field, value);
         } catch {
@@ -637,11 +642,33 @@ function ExerciseCard({
 
   // ── handleRemoveSet ──────────────────────────────────────────
   const handleRemoveSet = async (setId: string) => {
-    // Instant local state update
+    const currentSet = sets.find(s => s.id === setId);
+    const hasInput = currentSet && (
+      currentSet.weight !== 0 ||
+      currentSet.reps !== 0 ||
+      currentSet.rpe !== 0 ||
+      currentSet.rir !== 0
+    );
+
+    // CASE 1: Only 1 set exists
+    if (sets.length === 1) {
+      if (hasInput) {
+        // Clear inputs first — reset all fields to 0
+        setSets([{ ...currentSet!, weight: 0, reps: 0, rpe: 0, rir: 0 }]);
+        setResetKey(k => k + 1);
+        // Do NOT remove the exercise yet
+        return;
+      } else {
+        // No input — remove entire exercise immediately, no confirmation
+        onRemove(log.id);
+        return;
+      }
+    }
+
+    // CASE 2: Multiple sets — always just remove that set as before
     const updatedSets = sets.filter((s) => s.id !== setId);
     setSets(updatedSets);
 
-    // Instant IndexedDB update
     const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
     if (localSession) {
       const updatedLogs = localSession.logs.map(l => {
@@ -798,7 +825,7 @@ function ExerciseCard({
       <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 3 }}>
         {sets.map((set, i) => (
           <SetRow
-            key={set.id}
+            key={`${set.id}-${resetKey}`}
             set={set}
             index={i}
             onToggle={handleToggle}
@@ -837,7 +864,7 @@ function ExerciseCard({
       </button>
     </div>
   );
-}
+});
 
 // ============================================================
 // 5. EXERCISE LIBRARY MODAL
@@ -1146,7 +1173,14 @@ function LineChart({ data }: { data: ExerciseProgress[] }) {
 
         {/* Legend */}
         <div style={{
-          marginTop: 20, display: "flex", flexWrap: "wrap", gap: 12, padding: "0 10px"
+          marginTop: 20,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          padding: "0 10px",
+          overflowY: "auto",
+          maxHeight: processedData.length > 5 ? 160 : "none",
+          paddingRight: processedData.length > 5 ? 4 : 10,
         }}>
           {processedData.map((ex) => {
             const color = getExerciseColor(ex.exerciseName);
@@ -1788,6 +1822,7 @@ function PreviousSessionsModal({
   onViewDetail: (id: string) => void;
 }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -1875,7 +1910,7 @@ function PreviousSessionsModal({
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>
-              {sessions.map((s) => (
+              {sessions.filter(s => !deletingIds.includes(s.id)).map((s) => (
                 <div key={s.id}>
                   <div
                     onClick={() => onViewDetail(s.id)}
@@ -1943,6 +1978,7 @@ function PreviousSessionsModal({
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button
                           onClick={() => {
+                            setDeletingIds(prev => [...prev, s.id]);
                             onDelete(s.id);
                             setConfirmDeleteId(null);
                           }}
@@ -2266,7 +2302,19 @@ export default function RepLogPage() {
     if (!session) return;
     setActionLoading(true);
     try {
-      await endSession(session.id);
+      // Check if session is empty (0 exercises or 0 completed sets)
+      const totalCompletedSets = session.logs.reduce(
+        (sum, log) => sum + log.sets.filter(s => s.isCompleted).length, 0
+      );
+      const isEmpty = session.logs.length === 0 || totalCompletedSets === 0;
+
+      if (isEmpty) {
+        // Auto-delete empty sessions instead of saving them
+        await deleteSession(session.id);
+      } else {
+        await endSession(session.id);
+      }
+
       setSession(null);
       // Remove from active cache but could store in history if needed
       await putData(STORES.SESSIONS, { id: "active", isActive: false });
