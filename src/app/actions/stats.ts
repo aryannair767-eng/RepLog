@@ -85,20 +85,22 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     .sort(([, a], [, b]) => b - a)
     .map(([muscle, sets]) => ({ muscle, sets }));
 
-  const volumeByDay = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => {
-    const target = new Date(weekStart);
-    target.setDate(weekStart.getDate() + i);
-    target.setHours(0, 0, 0, 0); // Normalize to midnight
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  
+  const volumeByDay = DAY_NAMES.map((day, i) => {
+    const target = new Date();
+    target.setDate(target.getDate() - ((target.getDay() - i + 7) % 7));
+    target.setHours(0, 0, 0, 0);
     const targetEnd = new Date(target);
     targetEnd.setDate(target.getDate() + 1);
     targetEnd.setHours(0, 0, 0, 0);
-    
-    return { 
-      day, 
+
+    return {
+      day,
       totalSets: thisWeekSets.filter(s => {
         const sessionDate = new Date(s.workoutLog.session.startTime);
         return sessionDate >= target && sessionDate < targetEnd;
-      }).length 
+      }).length
     };
   });
 
