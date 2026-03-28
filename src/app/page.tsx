@@ -1235,6 +1235,8 @@ type ExerciseLibraryModalProps = {
   onClose: () => void;
   title?: string;
   isPage?: boolean;
+  libTab: "general" | "personal";
+  setLibTab: (tab: "general" | "personal") => void;
 };
 
 function ExerciseLibraryModal({
@@ -1242,9 +1244,10 @@ function ExerciseLibraryModal({
   onClose,
   title = "Select Exercise",
   isPage = false,
+  libTab,
+  setLibTab,
 }: ExerciseLibraryModalProps) {
   const [query, setQuery] = useState("");
-  const [libTab, setLibTab] = useState<"general" | "personal">("general");
   const [results, setResults] = useState<ExerciseData[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -1259,12 +1262,7 @@ function ExerciseLibraryModal({
   // ── Swipe between General / Personal ─────────────────────────
   const libTouchStartRef = useRef<number | null>(null);
   const libTouchEndRef = useRef<number | null>(null);
-  const handleLibSwipe = () => {
-    if (!libTouchStartRef.current || !libTouchEndRef.current) return;
-    const distance = libTouchStartRef.current - libTouchEndRef.current;
-    if (distance > 70 && libTab === "general") setLibTab("personal");
-    else if (distance < -70 && libTab === "personal") setLibTab("general");
-  };
+  const handleLibSwipe = () => {};
 
   // Fetch library initially
   useEffect(() => {
@@ -2022,6 +2020,7 @@ export default function RepLogPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [activeBarIndex, setActiveBarIndex] = useState<number | null>(null);
   const [barDismissTimer, setBarDismissTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [libTab, setLibTab] = useState<"general" | "personal">("general");
   const lastStatsFetchRef = useRef<number>(0);
   const liftedExercisesRef = useRef<ExerciseData[]>([]);
 
@@ -2048,13 +2047,16 @@ export default function RepLogPage() {
         const isLeftSwipe = distance > minSwipeDistance;
         const isRightSwipe = distance < -minSwipeDistance;
 
-        // Only allow LEFT swipe to exit library (go to progress tab)
-        // Right swipe is handled internally by the library modal
         if (isLeftSwipe) {
-          setActiveTab("progress");
+          // Left swipe: General → Personal, Personal → do nothing
+          if (libTab === "general") setLibTab("personal");
+          // if already on personal, do nothing
+        } else if (isRightSwipe) {
+          // Right swipe: Personal → General, General → exit to Progress
+          if (libTab === "personal") setLibTab("general");
+          else if (libTab === "general") setActiveTab("progress");
         }
-        // Always return early — never fall through to the global handler
-        return;
+        return; // Always return early — never fall through to the global handler
       }
       if (!touchStartRef.current || !touchEndRef.current) return;
 
@@ -2083,7 +2085,7 @@ export default function RepLogPage() {
       window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("touchend", onTouchEnd);
     };
-  }, [activeTab]);
+  }, [activeTab, libTab]);
   const { accentColor, setAccentColor, mode, toggleMode, ACCENTS } = useTheme();
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
@@ -3113,13 +3115,17 @@ export default function RepLogPage() {
           <div style={{ marginBottom: 40 }}>
             <ExerciseLibraryModal
               isPage
+              libTab={libTab}
+              setLibTab={setLibTab}
               onSelect={async (id) => {
                 if (session?.isActive) {
                   await handleAddExercise(id);
                   setActiveTab("logger");
+                } else {
+                  await putData(STORES.EXERCISES, { id: "active", data: id });
                 }
               }}
-              onClose={() => setActiveTab(session?.isActive ? "logger" : "dashboard")}
+              onClose={() => setIsLibraryOpen(false)}
             />
           </div>
         )}
@@ -3157,6 +3163,8 @@ export default function RepLogPage() {
       {/* Exercise Library Modal */}
       {isLibraryOpen && (
         <ExerciseLibraryModal
+          libTab={libTab}
+          setLibTab={setLibTab}
           onSelect={async (id) => {
             await handleAddExercise(id);
             setActiveTab("logger");
