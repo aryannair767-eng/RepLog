@@ -17,6 +17,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { unstable_noStore } from "next/cache";
 import type { PreviousSessionSummary, WorkoutSessionData } from "@/types/replog";
 import { getAuthUserId } from "@/lib/auth";
 
@@ -25,6 +26,7 @@ import { getAuthUserId } from "@/lib/auth";
 // including all exercises and their sets.
 // Returns null if no session is active (e.g. first-time user).
 export async function getActiveSession(): Promise<WorkoutSessionData | null> {
+  unstable_noStore();
   const userId = await getAuthUserId();
   // prisma.workoutSession maps to the "workout_sessions" table
   const session = await prisma.workoutSession.findFirst({
@@ -145,6 +147,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
 // ── getPreviousSessions ──────────────────────────────────────
 // Returns a read-only list of the user's past sessions (with date).
 export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
+  unstable_noStore();
   const userId = await getAuthUserId();
   const sessions = await prisma.workoutSession.findMany({
     where: { userId, isActive: false },
@@ -176,6 +179,7 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
 // Fetches a full session by ID with all exercises and sets.
 // Used for the read-only session detail view in History.
 export async function getSessionDetail(sessionId: string): Promise<WorkoutSessionData | null> {
+  unstable_noStore();
   const userId = await getAuthUserId();
   const session = await prisma.workoutSession.findFirst({
     where: {

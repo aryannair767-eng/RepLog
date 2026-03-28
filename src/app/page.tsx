@@ -686,6 +686,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
     try {
       await removeSet(setId);
+      onStatsRefresh();
     } catch {
       setError("Set removed locally. Sync pending.");
     }
@@ -2458,6 +2459,12 @@ export default function RepLogPage() {
           setSession(updated);
           putData(STORES.SESSIONS, { ...updated, id: "active" });
         }
+      })
+      .then(() => getDashboardStats())
+      .then((newStats) => {
+        setStats(newStats);
+        putData(STORES.STATS, { ...newStats, id: "current" }).catch(() => {});
+        setProgressRefreshKey((k) => k + 1);
       })
       .catch((e) => console.error("Failed to remove exercise:", e));
   };
