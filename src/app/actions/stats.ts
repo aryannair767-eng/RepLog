@@ -126,9 +126,12 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   };
 }
 
+import { unstable_noStore } from "next/cache";
+
 // ── getGeneralExercises ─────────────────────────────────────────
 // Returns the full standard exercise library for the search modal.
 export async function getGeneralExercises() {
+  unstable_noStore(); // Prevents Next.js from permanently caching the empty build-time DB state
   return prisma.exercise.findMany({
     where: { primaryMuscle: { not: "Custom" } },
     orderBy: [{ primaryMuscle: "asc" }, { name: "asc" }],
