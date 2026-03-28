@@ -2332,6 +2332,7 @@ export default function RepLogPage() {
       const newStats = await getDashboardStats();
       setStats(newStats);
       await putData(STORES.STATS, { ...newStats, id: "current" });
+      lastStatsFetchRef.current = Date.now();
 
       // Refresh the Progress view so newly-completed sessions appear immediately
       setProgressRefreshKey((k) => k + 1);

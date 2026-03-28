@@ -152,7 +152,12 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
     take: 20,
     include: {
       logs: {
-        include: { _count: { select: { sets: { where: { isCompleted: true } } } } }
+        include: {
+          sets: {
+            where: { isCompleted: true },
+            select: { id: true }
+          }
+        }
       },
       _count: { select: { logs: true } }
     },
@@ -164,8 +169,10 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
     startTime: s.startTime.toISOString(),
     endTime: s.endTime?.toISOString() || null,
     logCount: s._count.logs,
-    completedSetCount: s.logs.reduce((sum, log) => sum + log._count.sets, 0),
-  }));
+    completedSetCount: s.logs.reduce(
+      (sum, log) => sum + log.sets.length, 0
+    ),
+  })).filter(s => !(s.completedSetCount === 0 && s.logCount === 0));
 }
 
 // ── getSessionDetail ─────────────────────────────────────────
