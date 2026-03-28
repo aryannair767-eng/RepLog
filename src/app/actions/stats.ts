@@ -85,15 +85,17 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     .sort(([, a], [, b]) => b - a)
     .map(([muscle, sets]) => ({ muscle, sets }));
 
-  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  
-  const volumeByDay = DAY_NAMES.map((day, i) => {
+  const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const volumeByDay = DAY_LABELS.map((day, i) => {
     const target = new Date();
-    target.setDate(target.getDate() - ((target.getDay() - i + 7) % 7));
+    // i=0 is Monday, i=6 is Sunday
+    const dayOfWeek = (i + 1) % 7; // Mon=1...Sun=0
+    const diff = (target.getDay() - dayOfWeek + 7) % 7;
+    target.setDate(target.getDate() - diff);
     target.setHours(0, 0, 0, 0);
     const targetEnd = new Date(target);
     targetEnd.setDate(target.getDate() + 1);
-    targetEnd.setHours(0, 0, 0, 0);
 
     return {
       day,
@@ -192,7 +194,7 @@ export async function createLoggableExercise(name: string, primaryMuscle: string
 export async function getWeeklyMuscleVolume() {
   const userId = await getAuthUserId();
   const weekStart = getWeekStart();
-  
+
   const thisWeekSets = await prisma.setLog.findMany({
     where: {
       isCompleted: true,
@@ -228,7 +230,7 @@ export async function getWeeklyMuscleVolume() {
 export async function getWeeklyMuscleFrequency() {
   const userId = await getAuthUserId();
   const weekStart = getWeekStart();
-  
+
   const thisWeekSets = await prisma.setLog.findMany({
     where: {
       isCompleted: true,
@@ -253,7 +255,7 @@ export async function getWeeklyMuscleFrequency() {
   for (const s of thisWeekSets) {
     const muscle = s.workoutLog.exercise.primaryMuscle;
     const dateStr = new Date(s.workoutLog.session.startTime).toDateString();
-    
+
     if (!muscleDays[muscle]) {
       muscleDays[muscle] = new Set();
     }
