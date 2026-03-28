@@ -2899,7 +2899,10 @@ export default function RepLogPage() {
                           {activeBarIndex === i && (
                             <div style={{
                               position: "absolute",
-                              left: "calc(100% + 6px)",
+                              ...(i >= 4 
+                                ? { right: "calc(100% + 6px)" } 
+                                : { left: "calc(100% + 6px)" }
+                              ),
                               top: "50%",
                               transform: "translateY(-50%)",
                               background: "var(--surface-solid, var(--surface))",
@@ -2922,369 +2925,382 @@ export default function RepLogPage() {
                         <span style={monoLabel(9)}>{d.day}</span>
                       </div>
                     ))}
-                  </div>
                 </div>
               </div>
             </div>
+          </div>
 
             {/* ── Critical Benchmarks ─────────────────────────── */}
-            <div style={{ marginBottom: 22 }}>
-              <div style={cardStyle}>
-                <div style={{
-                  borderBottom: `1px solid ${THEME.border}`,
-                  padding: "7px 14px",
-                  background: "var(--card-header-bg)",
-                }}>
-                  <span style={brandLabel(12)}>Critical Benchmarks</span>
-                </div>
-                <div style={{ padding: 4 }}>
-                  {/* Empty state: no PRs yet */}
-                  {(stats?.recentPRs?.length ?? 0) === 0 ? (
-                    <div style={{ padding: "20px 12px", textAlign: "center" }}>
-                      <p style={monoLabel(10, THEME.textDim)}>No PRs logged yet</p>
-                      <p style={{ ...monoLabel(9), marginTop: 6 }}>Complete sets to see records here</p>
-                    </div>
-                  ) : (
-                    stats!.recentPRs.map((pr, i) => (
-                      <div key={i} style={{
-                        display: "flex", justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "10px 12px",
-                        borderBottom: i < stats!.recentPRs.length - 1 ? `1px solid ${THEME.surface3}` : "none",
-                      }}>
-                        <div>
-                          <p style={monoLabel(9)}>{pr.date}</p>
-                          <h4 style={{
-                            fontWeight: 900, textTransform: "uppercase",
-                            fontStyle: "", color: THEME.textPrimary,
-                            fontSize: 12, margin: "2px 0 0",
-                          }}>
-                            {pr.exerciseName}
-                          </h4>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <p style={{
-                            fontSize: 14, fontWeight: 900, color: THEME.textPrimary,
-                            fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
-                          }}>
-                            {pr.weight}kg
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+        <div style={{ marginBottom: 22 }}>
+          <div style={cardStyle}>
+            <div style={{
+              borderBottom: `1px solid ${THEME.border}`,
+              padding: "7px 14px",
+              background: "var(--card-header-bg)",
+            }}>
+              <span style={brandLabel(12)}>Critical Benchmarks</span>
             </div>
-
-            {/* ── Muscle Distribution ───────────────────────── */}
-            <div style={{ ...cardStyle, marginBottom: 22 }}>
-              <div style={{
-                borderBottom: `1px solid ${THEME.border}`,
-                padding: "7px 14px",
-                background: "var(--card-header-bg)",
-              }}>
-                <span style={brandLabel(12)}>Muscle Distribution </span>
-              </div>
-              {/* Empty state */}
-              {(stats?.muscleDistribution?.length ?? 0) === 0 ? (
-                <div style={{ padding: "16px", textAlign: "center" }}>
-                  <p style={monoLabel(10, THEME.textDim)}>Start logging sets to see your muscle balance</p>
+            <div style={{ padding: 4 }}>
+              {/* Empty state: no PRs yet */}
+              {(stats?.recentPRs?.length ?? 0) === 0 ? (
+                <div style={{ padding: "20px 12px", textAlign: "center" }}>
+                  <p style={monoLabel(10, THEME.textDim)}>No PRs logged yet</p>
+                  <p style={{ ...monoLabel(9), marginTop: 6 }}>Complete sets to see records here</p>
                 </div>
               ) : (
-                stats!.muscleDistribution.map((m, i) => {
-                  const maxSets = stats!.muscleDistribution[0].sets;
-                  return (
-                    <div key={i} style={{
-                      display: "flex", alignItems: "center", gap: 12,
-                      padding: "8px 14px",
-                      borderBottom: i < stats!.muscleDistribution.length - 1
-                        ? `1px solid ${THEME.surface3}` : "none",
-                    }}>
-                      <span style={{
+                stats!.recentPRs.map((pr, i) => (
+                  <div key={i} style={{
+                    display: "flex", justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 12px",
+                    borderBottom: i < stats!.recentPRs.length - 1 ? `1px solid ${THEME.surface3}` : "none",
+                  }}>
+                    <div>
+                      <p style={monoLabel(9)}>{pr.date}</p>
+                      <h4 style={{
                         fontWeight: 900, textTransform: "uppercase",
-                        color: THEME.textPrimary, fontSize: 12.5,
-                        minWidth: 110
+                        fontStyle: "", color: THEME.textPrimary,
+                        fontSize: 12, margin: "2px 0 0",
                       }}>
-                        {m.muscle}
-                      </span>
-                      <div style={{ flex: 1, height: 2, background: THEME.border }}>
-                        <div style={{
-                          height: "100%", background: THEME.lime,
-                          width: `${(m.sets / maxSets) * 100}%`,
-                          transition: "width 0.8s ease",
-                        }} />
-                      </div>
-                      <span style={{
-                        fontSize: 15, fontWeight: 900, color: THEME.textPrimary,
-                        fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
-                        minWidth: 52, textAlign: "right"
-                      }}>
-                        {m.sets} sets
-                      </span>
+                        {pr.exerciseName}
+                      </h4>
                     </div>
-                  );
-                })
+                    <div style={{ textAlign: "right" }}>
+                      <p style={{
+                        fontSize: 14, fontWeight: 900, color: THEME.textPrimary,
+                        fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
+                      }}>
+                        {pr.weight}kg
+                      </p>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
-        )}
+        </div>
 
-        {/* ══════════════════════════════════════════════════════
+        {/* ── Muscle Distribution ───────────────────────── */}
+        <div style={{ ...cardStyle, marginBottom: 22 }}>
+          <div style={{
+            borderBottom: `1px solid ${THEME.border}`,
+            padding: "7px 14px",
+            background: "var(--card-header-bg)",
+          }}>
+            <span style={brandLabel(12)}>Muscle Distribution </span>
+          </div>
+          {/* Empty state */}
+          {(stats?.muscleDistribution?.length ?? 0) === 0 ? (
+            <div style={{ padding: "16px", textAlign: "center" }}>
+              <p style={monoLabel(10, THEME.textDim)}>Start logging sets to see your muscle balance</p>
+            </div>
+          ) : (
+            stats!.muscleDistribution.map((m, i) => {
+              const maxSets = stats!.muscleDistribution[0].sets;
+              return (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "8px 14px",
+                  borderBottom: i < stats!.muscleDistribution.length - 1
+                    ? `1px solid ${THEME.surface3}` : "none",
+                }}>
+                  <span style={{
+                    fontWeight: 900, textTransform: "uppercase",
+                    color: THEME.textPrimary, fontSize: 12.5,
+                    minWidth: 110
+                  }}>
+                    {m.muscle}
+                  </span>
+                  <div style={{ flex: 1, height: 2, background: THEME.border }}>
+                    <div style={{
+                      height: "100%", background: THEME.lime,
+                      width: `${(m.sets / maxSets) * 100}%`,
+                      transition: "width 0.8s ease",
+                    }} />
+                  </div>
+                  <span style={{
+                    fontSize: 15, fontWeight: 900, color: THEME.textPrimary,
+                    fontFamily: THEME.fontMono, letterSpacing: "-0.03em",
+                    minWidth: 52, textAlign: "right"
+                  }}>
+                    {m.sets} sets
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+    </div>
+  )
+}
+
+{/* ══════════════════════════════════════════════════════
             TAB: PROGRESS
             The Performance Matrix area. Two multi-line graphs.
         ══════════════════════════════════════════════════════ */}
-        {activeTab === "progress" && (
-          <ProgressMatrixView refreshKey={progressRefreshKey} onNavigate={setActiveTab} />
-        )}
+{
+  activeTab === "progress" && (
+    <ProgressMatrixView refreshKey={progressRefreshKey} onNavigate={setActiveTab} />
+  )
+}
 
-        {/* ══════════════════════════════════════════════════════
+{/* ══════════════════════════════════════════════════════
             TAB: LOGGER
             The live workout tracker. Shows exercise cards.
         ══════════════════════════════════════════════════════ */}
-        {activeTab === "logger" && (
-          <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
-              <button
-                onClick={() => setShowPreviousSessions(true)}
-                style={{
-                  background: "transparent",
-                  border: `1px solid ${THEME.border}`,
-                  color: THEME.lime,
-                  padding: "4px 12px",
-                  cursor: "pointer",
-                  borderRadius: THEME.borderRadius,
-                  ...monoLabel(9, THEME.lime),
-                }}
-              >
-                Previous Sessions
-              </button>
-            </div>
-            {/* No session: show "Beginner's Guide" welcome screen */}
-            {!session && !sessionLoading && (
-              <div>
-                {/* Welcome / first-time user message */}
-                <div style={{
+{
+  activeTab === "logger" && (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <button
+          onClick={() => setShowPreviousSessions(true)}
+          style={{
+            background: "transparent",
+            border: `1px solid ${THEME.border}`,
+            color: THEME.lime,
+            padding: "4px 12px",
+            cursor: "pointer",
+            borderRadius: THEME.borderRadius,
+            ...monoLabel(9, THEME.lime),
+          }}
+        >
+          Previous Sessions
+        </button>
+      </div>
+      {/* No session: show "Beginner's Guide" welcome screen */}
+      {!session && !sessionLoading && (
+        <div>
+          {/* Welcome / first-time user message */}
+          <div style={{
+            border: `1px solid var(--border)`,
+            borderLeft: `4px solid var(--accent-color)`,
+            padding: "20px 24px",
+            marginBottom: 20,
+            background: "var(--done-bg)",
+            borderRadius: "var(--radius)",
+          }}>
+            <h2 style={{
+              fontSize: 18, fontWeight: 900, textTransform: "uppercase",
+              letterSpacing: "-0.03em", color: THEME.textPrimary, margin: "0 0 8px",
+            }}>
+              {(stats?.totalSessionsEver ?? 0) === 0 ? "Start Your First Session" : "Start Another Session"}
+            </h2>
+            <p style={{ ...monoLabel(10, THEME.textDim), marginBottom: 16 }}>
+              Click &quot;New Session&quot; in the header to begin logging.
+              Your sets will save automatically as you check them off.
+            </p>
+            {/* Quick-start guide */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3,1fr)",
+              gap: 12,
+            }}>
+              {[
+                { step: "01", title: "Start Session", desc: "Hit 'New Session' in the top-right header." },
+                { step: "02", title: "Add Exercise", desc: "Click '+ Add Exercise' and search the library." },
+                { step: "03", title: "Log Your Sets", desc: "Enter weight, reps, RPE & RIR, then check off each set." },
+              ].map((s) => (
+                <div key={s.step} style={{
                   border: `1px solid var(--border)`,
-                  borderLeft: `4px solid var(--accent-color)`,
-                  padding: "20px 24px",
-                  marginBottom: 20,
-                  background: "var(--done-bg)",
+                  padding: "12px 14px",
+                  background: "var(--surface)",
                   borderRadius: "var(--radius)",
                 }}>
-                  <h2 style={{
-                    fontSize: 18, fontWeight: 900, textTransform: "uppercase",
-                    letterSpacing: "-0.03em", color: THEME.textPrimary, margin: "0 0 8px",
-                  }}>
-                    {(stats?.totalSessionsEver ?? 0) === 0 ? "Start Your First Session" : "Start Another Session"}
-                  </h2>
-                  <p style={{ ...monoLabel(10, THEME.textDim), marginBottom: 16 }}>
-                    Click &quot;New Session&quot; in the header to begin logging.
-                    Your sets will save automatically as you check them off.
-                  </p>
-                  {/* Quick-start guide */}
-                  <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(3,1fr)",
-                    gap: 12,
-                  }}>
-                    {[
-                      { step: "01", title: "Start Session", desc: "Hit 'New Session' in the top-right header." },
-                      { step: "02", title: "Add Exercise", desc: "Click '+ Add Exercise' and search the library." },
-                      { step: "03", title: "Log Your Sets", desc: "Enter weight, reps, RPE & RIR, then check off each set." },
-                    ].map((s) => (
-                      <div key={s.step} style={{
-                        border: `1px solid var(--border)`,
-                        padding: "12px 14px",
-                        background: "var(--surface)",
-                        borderRadius: "var(--radius)",
-                      }}>
-                        <p style={{ ...monoLabel(9, THEME.lime), marginBottom: 4 }}>{s.step}</p>
-                        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: THEME.textPrimary, marginBottom: 4 }}>{s.title}</p>
-                        <p style={monoLabel(9, THEME.textGhost)}>{s.desc}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <p style={{ ...monoLabel(9, THEME.lime), marginBottom: 4 }}>{s.step}</p>
+                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: THEME.textPrimary, marginBottom: 4 }}>{s.title}</p>
+                  <p style={monoLabel(9, THEME.textGhost)}>{s.desc}</p>
                 </div>
-
-                {/* Big start button */}
-                <button
-                  onClick={handleStartSession}
-                  disabled={actionLoading}
-                  style={{
-                    width: "100%", padding: "14px",
-                    background: "var(--accent-color)", color: startBtnTextColor,
-                    border: "none", ...monoLabel(11, startBtnTextColor),
-                    fontWeight: 900, cursor: "pointer",
-                    borderRadius: "var(--radius)",
-                    fontSize: 13, letterSpacing: "0.15em",
-                    transition: "var(--transition)",
-                  }}
-
-                  onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.01)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-                >
-                  {actionLoading ? "STARTING SESSION..." : ((stats?.totalSessionsEver ?? 0) === 0 ? "START FIRST SESSION" : "START NEW SESSION")}
-                </button>
-              </div>
-            )}
-
-            {/* Active session: show exercise cards */}
-            {session?.isActive && (
-              <div>
-                {/* Session header bar */}
-                <div style={{
-                  display: "flex", justifyContent: "space-between",
-                  alignItems: "center", marginBottom: 14,
-                }}>
-                  <span style={monoLabel(9)}>
-                    {session.name}
-                  </span>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      onClick={toggleTimer}
-                      style={{
-                        background: "transparent",
-                        border: `1px solid var(--border)`,
-                        color: showRestTimer ? "var(--accent-color)" : "var(--text-ghost)", padding: "4px 12px",
-                        ...monoLabel(9, showRestTimer ? "var(--accent-color)" : "var(--text-ghost)"),
-                        cursor: "pointer",
-                        borderRadius: "var(--radius)",
-                        transition: "var(--transition)",
-                      }}
-                    >
-                      {showRestTimer ? "TIMER ON" : "TIMER OFF"}
-                    </button>
-                    <button
-                      onClick={() => setIsLibraryOpen(true)}
-                      style={{
-                        background: "transparent",
-                        border: `1px solid var(--border)`,
-                        color: "var(--accent-color)", padding: "4px 12px",
-                        ...monoLabel(9, "var(--accent-color)"),
-                        cursor: "pointer",
-                        borderRadius: "var(--radius)",
-                        display: "flex", alignItems: "center", gap: 4,
-                        transition: "var(--transition)",
-                      }}
-                    >
-                      <PlusIcon /> Add Exercise
-                    </button>
-                  </div>
-                </div>
-
-                {/* Empty session state */}
-                {session.logs.length === 0 && (
-                  <div style={{
-                    border: `1px dashed var(--border)`,
-                    padding: "32px", textAlign: "center",
-                    borderRadius: "var(--radius)"
-                  }}>
-                    <p style={monoLabel(11, "var(--text-secondary)")}>No exercises yet</p>
-                    <p style={{ ...monoLabel(9), marginTop: 6 }}>
-                      Click &quot;+ Add Exercise&quot; to pick from the library
-                    </p>
-                  </div>
-                )}
-
-                {/* One ExerciseCard per workout_log row */}
-                {session.logs
-                  .sort((a, b) => a.orderIndex - b.orderIndex)
-                  .map((log) => (
-                    <ExerciseCard
-                      key={log.id}
-                      log={log}
-                      onRemove={() => handleRemoveExercise(log.id)}
-                      onEdit={(logId) => {
-                        setSwapTargetLogId(logId);
-                        setIsLibraryOpen(true);
-                      }}
-                      showTimer={showRestTimer}
-                      onStatsRefresh={handleStatsRefresh}
-                    />
-                  ))}
-              </div>
-            )}
+              ))}
+            </div>
           </div>
-        )}
 
-        {/* ══════════════════════════════════════════════════════
+          {/* Big start button */}
+          <button
+            onClick={handleStartSession}
+            disabled={actionLoading}
+            style={{
+              width: "100%", padding: "14px",
+              background: "var(--accent-color)", color: startBtnTextColor,
+              border: "none", ...monoLabel(11, startBtnTextColor),
+              fontWeight: 900, cursor: "pointer",
+              borderRadius: "var(--radius)",
+              fontSize: 13, letterSpacing: "0.15em",
+              transition: "var(--transition)",
+            }}
+
+            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.01)")}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+          >
+            {actionLoading ? "STARTING SESSION..." : ((stats?.totalSessionsEver ?? 0) === 0 ? "START FIRST SESSION" : "START NEW SESSION")}
+          </button>
+        </div>
+      )}
+
+      {/* Active session: show exercise cards */}
+      {session?.isActive && (
+        <div>
+          {/* Session header bar */}
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            alignItems: "center", marginBottom: 14,
+          }}>
+            <span style={monoLabel(9)}>
+              {session.name}
+            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={toggleTimer}
+                style={{
+                  background: "transparent",
+                  border: `1px solid var(--border)`,
+                  color: showRestTimer ? "var(--accent-color)" : "var(--text-ghost)", padding: "4px 12px",
+                  ...monoLabel(9, showRestTimer ? "var(--accent-color)" : "var(--text-ghost)"),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  transition: "var(--transition)",
+                }}
+              >
+                {showRestTimer ? "TIMER ON" : "TIMER OFF"}
+              </button>
+              <button
+                onClick={() => setIsLibraryOpen(true)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid var(--border)`,
+                  color: "var(--accent-color)", padding: "4px 12px",
+                  ...monoLabel(9, "var(--accent-color)"),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  display: "flex", alignItems: "center", gap: 4,
+                  transition: "var(--transition)",
+                }}
+              >
+                <PlusIcon /> Add Exercise
+              </button>
+            </div>
+          </div>
+
+          {/* Empty session state */}
+          {session.logs.length === 0 && (
+            <div style={{
+              border: `1px dashed var(--border)`,
+              padding: "32px", textAlign: "center",
+              borderRadius: "var(--radius)"
+            }}>
+              <p style={monoLabel(11, "var(--text-secondary)")}>No exercises yet</p>
+              <p style={{ ...monoLabel(9), marginTop: 6 }}>
+                Click &quot;+ Add Exercise&quot; to pick from the library
+              </p>
+            </div>
+          )}
+
+          {/* One ExerciseCard per workout_log row */}
+          {session.logs
+            .sort((a, b) => a.orderIndex - b.orderIndex)
+            .map((log) => (
+              <ExerciseCard
+                key={log.id}
+                log={log}
+                onRemove={() => handleRemoveExercise(log.id)}
+                onEdit={(logId) => {
+                  setSwapTargetLogId(logId);
+                  setIsLibraryOpen(true);
+                }}
+                showTimer={showRestTimer}
+                onStatsRefresh={handleStatsRefresh}
+              />
+            ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+{/* ══════════════════════════════════════════════════════
             TAB: LIBRARY
             Browse the full exercise database.
         ══════════════════════════════════════════════════════ */}
-        {activeTab === "library" && (
-          <div style={{ marginBottom: 40 }}>
-            <ExerciseLibraryModal
-              isPage
-              libTab={libTab}
-              setLibTab={setLibTab}
-              onExerciseCreated={(ex) => {
-                liftedExercisesRef.current = [
-                  ...liftedExercisesRef.current,
-                  ex
-                ];
-              }}
-              onSelect={async (id) => {
-                await handleAddExercise(id);
-              }}
-              onClose={() => setIsLibraryOpen(false)}
-            />
-          </div>
-        )}
-
-      </main>
-
-      {/* Background grid overlay — the subtle trellis pattern */}
-      {/* To remove it: delete this div */}
-      <div style={{
-        position: "fixed", inset: 0, pointerEvents: "none",
-        opacity: 0.03, zIndex: -1,
-        backgroundImage: "linear-gradient(to right,#808080 1px,transparent 1px),linear-gradient(to bottom,#808080 1px,transparent 1px)",
-        backgroundSize: "40px 40px",
-      }} />
-
-      {/* Previous Sessions Modal */}
-      {showPreviousSessions && !selectedSessionId && (
-        <PreviousSessionsModal
-          sessions={previousSessions}
-          loading={previousSessionsLoading}
-          onClose={() => setShowPreviousSessions(false)}
-          onDelete={handleDeleteSession}
-          onViewDetail={(id) => setSelectedSessionId(id)}
-        />
-      )}
-
-      {/* Session Detail View */}
-      {selectedSessionId && (
-        <SessionDetailView
-          sessionId={selectedSessionId}
-          onBack={() => setSelectedSessionId(null)}
-          btnTextColor={startBtnTextColor}
-        />
-      )}
-
-      {/* Exercise Library Modal */}
-      {isLibraryOpen && (
-        <ExerciseLibraryModal
-          libTab={libTab}
-          setLibTab={setLibTab}
-          onExerciseCreated={(ex) => {
-            liftedExercisesRef.current = [
-              ...liftedExercisesRef.current,
-              ex
-            ];
-          }}
-          onSelect={async (id) => {
-            await handleAddExercise(id);
-            setActiveTab("logger");
-          }}
-          onClose={() => {
-            setIsLibraryOpen(false);
-            setSwapTargetLogId(null);
-          }}
-          title={swapTargetLogId ? "Change Exercise" : "Add Exercise"}
-        />
-      )}
+{
+  activeTab === "library" && (
+    <div style={{ marginBottom: 40 }}>
+      <ExerciseLibraryModal
+        isPage
+        libTab={libTab}
+        setLibTab={setLibTab}
+        onExerciseCreated={(ex) => {
+          liftedExercisesRef.current = [
+            ...liftedExercisesRef.current,
+            ex
+          ];
+        }}
+        onSelect={async (id) => {
+          await handleAddExercise(id);
+        }}
+        onClose={() => setIsLibraryOpen(false)}
+      />
     </div>
+  )
+}
+
+      </main >
+
+  {/* Background grid overlay — the subtle trellis pattern */ }
+{/* To remove it: delete this div */ }
+<div style={{
+  position: "fixed", inset: 0, pointerEvents: "none",
+  opacity: 0.03, zIndex: -1,
+  backgroundImage: "linear-gradient(to right,#808080 1px,transparent 1px),linear-gradient(to bottom,#808080 1px,transparent 1px)",
+  backgroundSize: "40px 40px",
+}} />
+
+{/* Previous Sessions Modal */ }
+{
+  showPreviousSessions && !selectedSessionId && (
+    <PreviousSessionsModal
+      sessions={previousSessions}
+      loading={previousSessionsLoading}
+      onClose={() => setShowPreviousSessions(false)}
+      onDelete={handleDeleteSession}
+      onViewDetail={(id) => setSelectedSessionId(id)}
+    />
+  )
+}
+
+{/* Session Detail View */ }
+{
+  selectedSessionId && (
+    <SessionDetailView
+      sessionId={selectedSessionId}
+      onBack={() => setSelectedSessionId(null)}
+      btnTextColor={startBtnTextColor}
+    />
+  )
+}
+
+{/* Exercise Library Modal */ }
+{
+  isLibraryOpen && (
+    <ExerciseLibraryModal
+      libTab={libTab}
+      setLibTab={setLibTab}
+      onExerciseCreated={(ex) => {
+        liftedExercisesRef.current = [
+          ...liftedExercisesRef.current,
+          ex
+        ];
+      }}
+      onSelect={async (id) => {
+        await handleAddExercise(id);
+        setActiveTab("logger");
+      }}
+      onClose={() => {
+        setIsLibraryOpen(false);
+        setSwapTargetLogId(null);
+      }}
+      title={swapTargetLogId ? "Change Exercise" : "Add Exercise"}
+    />
+  )
+}
+    </div >
   );
 }
