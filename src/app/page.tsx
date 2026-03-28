@@ -42,6 +42,7 @@ import {
 } from "@/app/actions/sets";
 import { getDashboardStats, getGeneralExercises, getPersonalExercises, searchExercises, createLoggableExercise } from "@/app/actions/stats";
 import { getHistoricalProgress, type ExerciseProgress } from "@/app/actions/progress";
+import { getHydrationData } from "@/app/actions/hydration";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 
@@ -2211,7 +2212,6 @@ export default function RepLogPage() {
 
       // 2. Fetch from server in a single' hydration' batch
       try {
-        const { getHydrationData } = await import("@/app/actions/hydration");
         const data = await getHydrationData();
 
         if (data.activeSession) {
