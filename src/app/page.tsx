@@ -1679,9 +1679,11 @@ function ExerciseLibraryModal({
 function SessionDetailView({
   sessionId,
   onBack,
+  btnTextColor,
 }: {
   sessionId: string;
   onBack: () => void;
+  btnTextColor: string;
 }) {
   const [sessionData, setSessionData] = useState<WorkoutSessionData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1728,7 +1730,14 @@ function SessionDetailView({
             <h2 style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", margin: 0 }}>{sessionData.name}</h2>
             <div style={{ ...monoLabel(9, THEME.lime), marginTop: 4 }}>{formatDate(sessionData.startTime)}</div>
           </div>
-          <button onClick={onBack} style={{ ...brandButton, padding: "6px 16px", display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={onBack} style={{ 
+            ...brandButton, 
+            padding: "6px 16px", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 6,
+            color: btnTextColor,
+          }}>
             ← BACK
           </button>
         </div>
@@ -2087,6 +2096,7 @@ export default function RepLogPage() {
     };
   }, [activeTab, libTab]);
   const { accentColor, setAccentColor, mode, toggleMode, ACCENTS } = useTheme();
+  const startBtnTextColor = accentColor.toLowerCase() === "#ffffff" ? "#000000" : "#ffffff";
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
 
@@ -3021,8 +3031,8 @@ export default function RepLogPage() {
                   disabled={actionLoading}
                   style={{
                     width: "100%", padding: "14px",
-                    background: "var(--accent-color)", color: "var(--accent-contrast)",
-                    border: "none", ...monoLabel(11, "var(--accent-contrast)"),
+                    background: "var(--accent-color)", color: startBtnTextColor,
+                    border: "none", ...monoLabel(11, startBtnTextColor),
                     fontWeight: 900, cursor: "pointer",
                     borderRadius: "var(--radius)",
                     fontSize: 13, letterSpacing: "0.15em",
@@ -3165,6 +3175,7 @@ export default function RepLogPage() {
         <SessionDetailView
           sessionId={selectedSessionId}
           onBack={() => setSelectedSessionId(null)}
+          btnTextColor={startBtnTextColor}
         />
       )}
 
