@@ -2351,7 +2351,7 @@ export default function RepLogPage() {
 
     if (!session) return;
 
-    // Optimistic: build a temp log and add it to UI immediately
+    // STEP 1: Build optimistic log from cache — instant, no async
     const cachedEx = liftedExercisesRef.current.find(e => e.id === exerciseId);
     const tempLogId = `temp-log-${Date.now()}`;
     const tempLog: WorkoutLogData = {
@@ -2361,20 +2361,37 @@ export default function RepLogPage() {
       exercise: cachedEx
         ? { id: cachedEx.id, name: cachedEx.name, primaryMuscle: cachedEx.primaryMuscle, secondaryMuscle: cachedEx.secondaryMuscle, mechanics: cachedEx.mechanics }
         : { id: exerciseId, name: "Loading...", primaryMuscle: "", secondaryMuscle: null, mechanics: "" },
-      sets: [],
+      sets: [
+        {
+          id: `temp-set-${Date.now()}`,
+          setNumber: 1,
+          weight: 0,
+          reps: 0,
+          rpe: 0,
+          rir: 0,
+          isCompleted: false,
+        }
+      ],
     };
+
+    // STEP 2: Update React state and switch tabs IMMEDIATELY —
+    // no awaits before this point
     const optimisticSession = { ...session, logs: [...session.logs, tempLog] };
     setSession(optimisticSession);
-    await putData(STORES.SESSIONS, { ...optimisticSession, id: "active" });
+    setActiveTab("logger");
     setIsLibraryOpen(false);
 
-    // Background: persist to server and reconcile
+    // STEP 3: Fire IndexedDB and server calls in background —
+    // do NOT await these before the UI update above
+    putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => {});
+
     try {
+      // Server call — reconcile after completion
       await addExerciseToSession(session.id, exerciseId);
       const serverSession = await getActiveSession();
       if (serverSession) {
         setSession(serverSession);
-        await putData(STORES.SESSIONS, { ...serverSession, id: "active" });
+        putData(STORES.SESSIONS, { ...serverSession, id: "active" }).catch(() => {});
       }
     } catch (e) {
       console.error("Failed to add exercise:", e);
@@ -3184,12 +3201,7 @@ export default function RepLogPage() {
               libTab={libTab}
               setLibTab={setLibTab}
               onSelect={async (id) => {
-                if (session?.isActive) {
-                  await handleAddExercise(id);
-                  setActiveTab("logger");
-                } else {
-                  await putData(STORES.EXERCISES, { id: "active", data: id });
-                }
+                await handleAddExercise(id);
               }}
               onClose={() => setIsLibraryOpen(false)}
             />
