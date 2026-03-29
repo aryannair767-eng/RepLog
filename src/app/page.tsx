@@ -2545,46 +2545,45 @@ export default function RepLogPage() {
       const serverSession = await getActiveSession();
 
       if (serverSession) {
-        // Read absolute latest state to capture sets user typed during latency
-        const localActive = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
-        const currentLocalLogs = localActive ? localActive.logs : session.logs; // fallback
-
         setSession(prev => {
-          if (!prev) return serverSession;
+          if (!prev) return prev;
 
-          // Find the temp log using CURRENT local state which holds user inputs
-          const tempLog = currentLocalLogs.find(
+          // Find the specific temp log we just added
+          // using the tempLogId we captured before the optimistic update
+          const tempLogIndex = prev.logs.findIndex(
             l => l.id === tempLogId
           );
-          if (!tempLog) return prev;
+          if (tempLogIndex === -1) return prev;
 
-          // Find its real counterpart in the server response
-          // by matching orderIndex since that's stable
+          // Find its real counterpart in server response
+          // Server logs have the same exerciseId and orderIndex
+          const tempLog = prev.logs[tempLogIndex];
           const realLog = serverSession.logs.find(
-            l => l.orderIndex === tempLog.orderIndex &&
-              l.exerciseId === tempLog.exerciseId
+            l => l.exerciseId === tempLog.exerciseId &&
+                 l.orderIndex === tempLog.orderIndex
           );
           if (!realLog) return prev;
 
-          // Only update the IDs — keep everything else local
-          const updatedLogs = prev.logs.map(l => {
-            if (l.id !== tempLogId) return l; // leave all other logs untouched
+          // Build updated logs array — ONLY change the one temp log
+          // Leave every other log completely untouched
+          const updatedLogs = prev.logs.map((l, index) => {
+            if (index !== tempLogIndex) return l; // untouched
 
-            // Update set IDs and push any typed values to server
-            const updatedSets = tempLog.sets.map((localSet, index) => {
-              const serverSet = realLog.sets[index];
+            // Update set IDs and sync any typed values to server
+            const updatedSets = l.sets.map((localSet, setIndex) => {
+              const serverSet = realLog.sets[setIndex];
               if (serverSet && localSet.id.startsWith("temp-")) {
-                // Push typed values to real set ID in background
+                // Push any values user typed to real set ID
                 if (localSet.weight > 0)
-                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => { });
+                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => {});
                 if (localSet.reps > 0)
-                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => { });
-                if (localSet.rpe !== 0)
-                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => { });
-                if (localSet.rir !== 0)
-                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => { });
+                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => {});
+                if (localSet.rpe != null && localSet.rpe > 0)
+                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => {});
+                if (localSet.rir != null)
+                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => {});
                 if (localSet.isCompleted)
-                  toggleSetComplete(serverSet.id, true).catch(() => { });
+                  toggleSetComplete(serverSet.id, true).catch(() => {});
               }
               return {
                 ...localSet,
@@ -2593,7 +2592,7 @@ export default function RepLogPage() {
             });
 
             return {
-              ...tempLog, // Preserve full temp log state so remount matches UI exactly
+              ...l,
               id: realLog.id,
               sets: updatedSets,
             };
@@ -2602,8 +2601,9 @@ export default function RepLogPage() {
           return { ...prev, logs: updatedLogs };
         });
 
-        const nextState = { ...serverSession, id: "active" };
-        putData(STORES.SESSIONS, nextState).catch(() => { });
+        putData(STORES.SESSIONS, {
+          ...serverSession, id: "active",
+        }).catch(() => {});
       }
     } catch (e) {
       console.error("Failed to add exercise to server:", e);
