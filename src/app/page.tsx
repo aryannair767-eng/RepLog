@@ -530,7 +530,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
         weight: s.weight === 0 ? "" : s.weight,
         reps: s.reps === 0 ? "" : s.reps,
         rpe: s.rpe === 0 ? "" : s.rpe,
-        rir: s.rir === 0 ? "" : s.rir,
+        rir: s.rir === null ? "" : s.rir,
       };
     }
     return initial;
@@ -578,7 +578,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
             weight: s.weight === 0 ? "" : s.weight,
             reps: s.reps === 0 ? "" : s.reps,
             rpe: s.rpe === 0 ? "" : s.rpe,
-            rir: s.rir === 0 ? "" : s.rir,
+            rir: s.rir === null ? "" : s.rir,
           };
         }
       }
@@ -2560,7 +2560,7 @@ export default function RepLogPage() {
           const tempLog = prev.logs[tempLogIndex];
           const realLog = serverSession.logs.find(
             l => l.exerciseId === tempLog.exerciseId &&
-                 l.orderIndex === tempLog.orderIndex
+              l.orderIndex === tempLog.orderIndex
           );
           if (!realLog) return prev;
 
@@ -2575,15 +2575,15 @@ export default function RepLogPage() {
               if (serverSet && localSet.id.startsWith("temp-")) {
                 // Push any values user typed to real set ID
                 if (localSet.weight > 0)
-                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => {});
+                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => { });
                 if (localSet.reps > 0)
-                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => {});
+                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => { });
                 if (localSet.rpe != null && localSet.rpe > 0)
-                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => {});
+                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => { });
                 if (localSet.rir != null)
-                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => {});
+                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => { });
                 if (localSet.isCompleted)
-                  toggleSetComplete(serverSet.id, true).catch(() => {});
+                  toggleSetComplete(serverSet.id, true).catch(() => { });
               }
               return {
                 ...localSet,
@@ -2603,7 +2603,7 @@ export default function RepLogPage() {
 
         putData(STORES.SESSIONS, {
           ...serverSession, id: "active",
-        }).catch(() => {});
+        }).catch(() => { });
       }
     } catch (e) {
       console.error("Failed to add exercise to server:", e);
