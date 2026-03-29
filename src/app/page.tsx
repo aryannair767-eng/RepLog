@@ -394,7 +394,7 @@ const SetRow = React.memo(function SetRow({
 }: {
   set: SetLogData;
   index: number;
-  fieldValues: { weight: number; reps: number; rpe: number; rir: number };
+  fieldValues: { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" };
   onToggle: (id: string, current: boolean) => void;
   onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => void;
   onRemoveSet: (id: string) => void;
@@ -419,17 +419,18 @@ const SetRow = React.memo(function SetRow({
           <input
             key={field}
             type="number"
-            step={field === "weight" || field === "rpe" ? "0.1" : "1"}
-            inputMode={field === "weight" || field === "rpe" ? "decimal" : "numeric"}
-            value={
-              fieldValues[field] === 0 && (field === "weight" || field === "reps") && !set.isCompleted
-                ? "" 
-                : fieldValues[field]
-            }
+            step={field === "weight" || field === "rpe" || field === "rir" ? "any" : "1"}
+            inputMode={field === "weight" || field === "rpe" || field === "rir" ? "decimal" : "numeric"}
+            value={fieldValues[field] === "" ? "" : (fieldValues[field] === 0 && !set.isCompleted ? "" : fieldValues[field])}
             placeholder="—"
             onChange={(e) => {
+              const raw = e.target.value;
+              if (raw === "") {
+                onFieldChange(set.id, field, 0);
+                return;
+              }
               const max = field === "rpe" || field === "rir" ? 10 : 999;
-              const val = Math.min(Math.max(0, Number(e.target.value) || 0), max);
+              const val = Math.min(Math.max(0, parseFloat(raw) || 0), max);
               onFieldChange(set.id, field, val);
             }}
             onKeyDown={(e) => {
@@ -521,11 +522,16 @@ const ExerciseCard = React.memo(function ExerciseCard({
   
   // Track continuous input values to survive mounting and key changes
   const [fieldValues, setFieldValues] = useState<
-    Record<string, { weight: number; reps: number; rpe: number; rir: number }>
+    Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }>
   >(() => {
-    const initial: Record<string, { weight: number; reps: number; rpe: number; rir: number }> = {};
+    const initial: Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }> = {};
     for (const s of log.sets) {
-      initial[s.id] = { weight: s.weight, reps: s.reps, rpe: s.rpe, rir: s.rir };
+      initial[s.id] = {
+        weight: s.weight,
+        reps: s.reps,
+        rpe: s.rpe === 0 ? "" : s.rpe,
+        rir: s.rir === 0 ? "" : s.rir,
+      };
     }
     return initial;
   });
@@ -533,12 +539,17 @@ const ExerciseCard = React.memo(function ExerciseCard({
   // Sync fieldValues when set IDs upgrade from temp to real
   useEffect(() => {
     setFieldValues(prev => {
-      const next: Record<string, { weight: number; reps: number; rpe: number; rir: number }> = {};
+      const next: Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }> = {};
       for (const s of sets) {
         if (prev[s.id]) {
           next[s.id] = prev[s.id];
         } else {
-          next[s.id] = { weight: s.weight, reps: s.reps, rpe: s.rpe, rir: s.rir };
+          next[s.id] = {
+            weight: s.weight,
+            reps: s.reps,
+            rpe: s.rpe === 0 ? "" : s.rpe,
+            rir: s.rir === 0 ? "" : s.rir,
+          };
         }
       }
       return next;
@@ -597,7 +608,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
       // Update controlled input values immediately
       setFieldValues(prev => ({
         ...prev,
-        [setId]: { ...(prev[setId] ?? { weight: 0, reps: 0, rpe: 0, rir: 0 }), [field]: value }
+        [setId]: { ...(prev[setId] ?? { weight: 0, reps: 0, rpe: "", rir: "" }), [field]: value }
       }));
 
       // Instant local React state update
