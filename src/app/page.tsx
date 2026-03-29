@@ -641,7 +641,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
         [setId]: { ...(prev[setId] ?? { weight: "", reps: "", rpe: "", rir: "" }), [field]: value }
       }));
 
-      const numValue = value === "" ? 0 : value;
+      // FIXED: Handle RIR properly - convert empty string to null, not 0
+      const numValue = field === "rir" ? (value === "" ? null : value) : (value === "" ? 0 : value);
 
       // Instant local React state update
       setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: numValue } : s));
@@ -686,7 +687,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
     const newSet: SetLogData = {
       id: tempId,
       setNumber: sets.length + 1,
-      weight: 0, reps: 0, rpe: 0, rir: 0,
+      weight: 0, reps: 0, rpe: 0, rir: null, // FIXED: RIR starts as null, not 0
       isCompleted: false,
     };
     const updatedSets = [...sets, newSet];
@@ -1424,7 +1425,7 @@ function ExerciseLibraryModal({
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!query) {
-        // No query: load full list
+        // FIXED: Empty query guard - return ALL exercises instead of empty array
         if (libTab === "general") {
           // If we already have the full list cached in memory, show it instantly
           if (allExercises.length > 0) {
@@ -1435,17 +1436,32 @@ function ExerciseLibraryModal({
               setAllExercises(all);
               putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
             }).catch(() => { });
+            setLoading(false); // FIXED: Ensure loading state is reset
             return;
           }
           setLoading(true);
-          const all = await getGeneralExercises();
-          setResults(all);
-          setAllExercises(all);
-          putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
+          try {
+            const all = await getGeneralExercises();
+            setResults(all);
+            setAllExercises(all);
+            putData(STORES.EXERCISES, { id: "library_cache", data: all }).catch(() => { });
+          } catch (e) {
+            console.error("Failed to load general exercises:", e);
+            setResults([]); // FIXED: Don't leave undefined
+          } finally {
+            setLoading(false); // FIXED: Ensure loading is always reset
+          }
         } else {
           setLoading(true);
-          const personal = await getPersonalExercises();
-          setResults(personal);
+          try {
+            const personal = await getPersonalExercises();
+            setResults(personal);
+          } catch (e) {
+            console.error("Failed to load personal exercises:", e);
+            setResults([]); // FIXED: Don't leave undefined
+          } finally {
+            setLoading(false); // FIXED: Ensure loading is always reset
+          }
         }
       } else {
         // Query typed: use client-side filtering if we have the full list
@@ -1453,16 +1469,25 @@ function ExerciseLibraryModal({
           const q = query.toLowerCase();
           const filtered = allExercises.filter(
             (ex) =>
-              ex.name.toLowerCase().includes(q) ||
-              ex.primaryMuscle.toLowerCase().includes(q)
+              // FIXED: Added null checks to prevent vanishing cards
+              (ex.name && ex.name.toLowerCase().includes(q)) ||
+              (ex.primaryMuscle && ex.primaryMuscle.toLowerCase().includes(q))
           );
           setResults(filtered);
+          setLoading(false); // FIXED: Ensure loading is reset
           return;
         }
         // Fallback to server search
         setLoading(true);
-        const res = await searchExercises(query);
-        setResults(res);
+        try {
+          const res = await searchExercises(query);
+          setResults(res);
+        } catch (e) {
+          console.error("Search failed:", e);
+          setResults([]); // FIXED: Ensure results don't disappear on error
+        } finally {
+          setLoading(false); // FIXED: Ensure loading is always reset
+        }
       }
       setLoading(false);
     }, 150); // reduced debounce since client-side filtering is instant
@@ -2232,9 +2257,11 @@ export default function RepLogPage() {
         const tabs: ("dashboard" | "logger" | "progress" | "library")[] = ["dashboard", "logger", "progress", "library"];
         const currentIndex = tabs.indexOf(activeTab);
 
+        // FIXED: Block right swipe from Progress tab to prevent wrapping
         if (isLeftSwipe && currentIndex < tabs.length - 1) {
           setActiveTab(tabs[currentIndex + 1]);
-        } else if (isRightSwipe && currentIndex > 0) {
+        } else if (isRightSwipe && currentIndex > 0 && activeTab !== "progress") {
+          // FIXED: Only allow right swipe if not on Progress tab
           setActiveTab(tabs[currentIndex - 1]);
         }
       }
