@@ -390,7 +390,7 @@ function RestTimer({ triggerReset }: { triggerReset: number }) {
 
 // ── SetRow ─────────────────────────────────────────────────────
 const SetRow = React.memo(function SetRow({
-  set, index, fieldValues, onToggle, onFieldChange, onRemoveSet,
+  set, index, fieldValues, onToggle, onFieldChange, onRemoveSet, isSavingSet,
 }: {
   set: SetLogData;
   index: number;
@@ -398,6 +398,7 @@ const SetRow = React.memo(function SetRow({
   onToggle: (id: string, current: boolean) => void;
   onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number | "") => void;
   onRemoveSet: (id: string) => void;
+  isSavingSet: string | null;
 }) {
   return (
     <div style={{
@@ -479,18 +480,24 @@ const SetRow = React.memo(function SetRow({
         {/* Check/done button */}
         <button
           onClick={() => onToggle(set.id, set.isCompleted)}
+          disabled={isSavingSet === set.id}
           style={{
             marginLeft: "auto",
             width: 24, height: 24,
             display: "flex", alignItems: "center", justifyContent: "center",
             border: `1px solid ${set.isCompleted ? THEME.lime : THEME.border2}`,
             background: set.isCompleted ? THEME.lime : "transparent",
-            cursor: "pointer",
+            cursor: isSavingSet === set.id ? "not-allowed" : "pointer",
             transition: "all 0.15s",
             borderRadius: THEME.borderRadius,
+            opacity: isSavingSet === set.id ? 0.5 : 1,
           }}
         >
-          {set.isCompleted && <CheckIcon />}
+          {isSavingSet === set.id ? (
+            <span style={{ fontSize: 10 }}>⋯</span>
+          ) : (
+            set.isCompleted && <CheckIcon />
+          )}
         </button>
       </div>
     </div>
@@ -588,6 +595,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
   // Error message shown in red if a DB save fails
   const [error, setError] = useState<string | null>(null);
+  // Track when sets are being saved to prevent double-clicks
+  const [isSavingSet, setIsSavingSet] = useState<string | null>(null);
   // Increments each time a set is completed — triggers the rest timer
   const [restTrigger, setRestTrigger] = useState(0);
   // Debounce timers: key = "setId-field", value = timeout ID
@@ -599,36 +608,41 @@ const ExerciseCard = React.memo(function ExerciseCard({
   const handleToggle = useCallback(async (setId: string, current: boolean) => {
     const newVal = !current;
 
-    // Step 1: instant UI update
-    setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: newVal } : s));
-
-    // Step 1b: update IndexedDB for offline persistence
-    const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
-    if (localSession) {
-      const updatedLogs = localSession.logs.map(l => {
-        if (l.id === log.id) {
-          return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, isCompleted: newVal } : s) };
-        }
-        return l;
-      });
-      await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
-    }
-
-    // Trigger rest timer when completing a set
-    if (newVal) setRestTrigger((t) => t + 1);
-
-    if (setId.startsWith("temp-")) return; // Defer DB sync until smart merge gives us the real ID
+    // Set loading state to prevent double-clicks
+    setIsSavingSet(setId);
 
     try {
-      // Step 2: save to server
+      // Step 1: Save to server FIRST (pessimistic approach)
       await toggleSetComplete(setId, newVal);
 
-      // Step 3: refresh stats to update volume distribution immediately
+      // Step 2: Only update local state AFTER server confirms
+      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: newVal } : s));
+
+      // Step 3: Update IndexedDB for offline persistence
+      const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+      if (localSession) {
+        const updatedLogs = localSession.logs.map(l => {
+          if (l.id === log.id) {
+            return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, isCompleted: newVal } : s) };
+          }
+          return l;
+        });
+        await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
+      }
+
+      // Step 4: Trigger rest timer when completing a set
+      if (newVal) setRestTrigger((t) => t + 1);
+
+      // Step 5: Refresh stats to update volume distribution immediately
       onStatsRefresh();
-    } catch {
-      // Step 3: revert on failure (optionally)
-      // setError("Connection lost — action queued."); 
-      // In a real local-first app, we'd queue this for later sync
+    } catch (e) {
+      console.error("Failed to toggle set completion:", e);
+      setError("Failed to save set. Please try again.");
+      // Revert UI state on error
+      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: current } : s));
+    } finally {
+      // Always clear loading state
+      setIsSavingSet(null);
     }
   }, [log.id]);
 
@@ -682,72 +696,54 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
   // ── handleAddSet ─────────────────────────────────────────────
   const handleAddSet = async () => {
-    // Optimistic: add a placeholder set immediately
-    const tempId = `temp-${Date.now()}`;
-    const newSet: SetLogData = {
-      id: tempId,
-      setNumber: sets.length + 1,
-      weight: 0, reps: 0, rpe: 0, rir: null, // FIXED: RIR starts as null, not 0
-      isCompleted: false,
-    };
-    const updatedSets = [...sets, newSet];
-    setSets(updatedSets);
-    
-    // CRITICAL: Update fieldValues immediately for the new set
-    setFieldValues(prev => ({
-      ...prev,
-      [tempId]: {
-        weight: "",
-        reps: "",
-        rpe: "",
-        rir: "", // Empty string for null RIR
-      }
-    }));
-
-    // Instant IndexedDB update
-    const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
-    if (localSession) {
-      const updatedLogs = localSession.logs.map(l => {
-        if (l.id === log.id) {
-          return { ...l, sets: updatedSets };
-        }
-        return l;
-      });
-      await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
-    }
+    // Set loading state to prevent double-clicks
+    setIsSavingSet("add-set");
 
     try {
+      // Step 1: Save to server FIRST (pessimistic approach)
       const realId = await addSet(log.id);
-      // Replace the temp ID with the real DB id in React state
-      setSets((prev) => prev.map((s) => {
-        if (s.id === tempId) {
-          const syncId = realId;
-          // Defer sync: push any values typed during the latency phase up to the server now
-          if (s.weight > 0) updateSetField(syncId, "weight", s.weight).catch(() => { });
-          if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(() => { });
-          if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(() => { });
-          if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(() => { });
-          if (s.isCompleted) toggleSetComplete(syncId, true).catch(() => { });
 
-          return { ...s, id: syncId };
+      // Step 2: Create the new set with the real ID from server
+      const newSet: SetLogData = {
+        id: realId,
+        setNumber: sets.length + 1,
+        weight: 0, reps: 0, rpe: 0, rir: null,
+        isCompleted: false,
+      };
+
+      // Step 3: Only update local state AFTER server confirms
+      const updatedSets = [...sets, newSet];
+      setSets(updatedSets);
+
+      // Step 4: Update fieldValues for the new set
+      setFieldValues(prev => ({
+        ...prev,
+        [realId]: {
+          weight: "",
+          reps: "",
+          rpe: "",
+          rir: "", // Empty string for null RIR
         }
-        return s;
       }));
 
-      // Also update IndexedDB with the real ID
-      const latestSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
-      if (latestSession) {
-        const syncLogs = latestSession.logs.map(l => {
+      // Step 5: Update IndexedDB for offline persistence
+      const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+      if (localSession) {
+        const updatedLogs = localSession.logs.map(l => {
           if (l.id === log.id) {
-            return { ...l, sets: l.sets.map(s => s.id === tempId ? { ...s, id: realId } : s) };
+            return { ...l, sets: updatedSets };
           }
           return l;
         });
-        await putData(STORES.SESSIONS, { ...latestSession, logs: syncLogs, id: "active" });
+        await putData(STORES.SESSIONS, { ...localSession, logs: updatedLogs, id: "active" });
       }
-    } catch {
-      // Revert if even the local-first addition failed (rare)
-      // setSets((prev) => prev.filter((s) => s.id !== tempId));
+    } catch (e) {
+      console.error("Failed to add set:", e);
+      setError("Failed to add set. Please try again.");
+      // No UI revert needed since we didn't update UI before server success
+    } finally {
+      // Always clear loading state
+      setIsSavingSet(null);
     }
   };
 
@@ -950,6 +946,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
             onToggle={handleToggle}
             onFieldChange={handleFieldChange}
             onRemoveSet={handleRemoveSet}
+            isSavingSet={isSavingSet}
           />
         ))}
       </div>
@@ -960,26 +957,38 @@ const ExerciseCard = React.memo(function ExerciseCard({
       {/* Add Set button */}
       <button
         onClick={handleAddSet}
+        disabled={isSavingSet === "add-set"}
         style={{
           width: "100%", padding: 8,
-          ...monoLabel(9, THEME.textGhost),
+          ...monoLabel(9, isSavingSet === "add-set" ? THEME.textMuted : THEME.textGhost),
           background: "transparent", border: "none",
           borderTop: `1px solid ${THEME.border}`,
-          cursor: "pointer", display: "flex",
-          alignItems: "center", justifyContent: "center", gap: 4,
+          cursor: isSavingSet === "add-set" ? "not-allowed" : "pointer", 
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
           borderRadius: THEME.borderRadius,
           transition: "color 0.15s, background 0.15s",
+          opacity: isSavingSet === "add-set" ? 0.5 : 1,
         }}
         onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.color = THEME.textPrimary;
-          (e.currentTarget as HTMLButtonElement).style.background = THEME.surface3;
+          if (isSavingSet !== "add-set") {
+            (e.currentTarget as HTMLButtonElement).style.color = THEME.textPrimary;
+            (e.currentTarget as HTMLButtonElement).style.background = THEME.surface3;
+          }
         }}
         onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.color = THEME.textGhost;
-          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+          if (isSavingSet !== "add-set") {
+            (e.currentTarget as HTMLButtonElement).style.color = THEME.textGhost;
+            (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+          }
         }}
       >
-        <PlusIcon /> Add Set
+        {isSavingSet === "add-set" ? (
+          <>⋯ Saving...</>
+        ) : (
+          <>
+            <PlusIcon /> Add Set
+          </>
+        )}
       </button>
     </div>
   );
