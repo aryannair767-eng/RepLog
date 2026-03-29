@@ -95,8 +95,26 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
-        token.id = user.id;
-        token.isProfileComplete = (user as any).isProfileComplete;
+        // CRITICAL: The profile() callback may return a Google sub ID,
+        // but PrismaAdapter generates its own cuid for the DB row.
+        // We MUST look up the real DB user ID by email to ensure
+        // all queries (stats, sessions, sets) match the correct user.
+        if (user.email) {
+          const dbUser = await authPrisma.user.findUnique({
+            where: { email: user.email },
+            select: { id: true, isProfileComplete: true },
+          });
+          if (dbUser) {
+            token.id = dbUser.id;
+            token.isProfileComplete = dbUser.isProfileComplete;
+          } else {
+            token.id = user.id;
+            token.isProfileComplete = (user as any).isProfileComplete;
+          }
+        } else {
+          token.id = user.id;
+          token.isProfileComplete = (user as any).isProfileComplete;
+        }
       }
       if (trigger === "update" && session?.isProfileComplete) {
         token.isProfileComplete = session.isProfileComplete;
