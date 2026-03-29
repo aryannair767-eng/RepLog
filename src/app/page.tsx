@@ -2564,6 +2564,7 @@ export default function RepLogPage() {
       
       // Show success feedback
       console.log("Session ended successfully and saved to previous sessions");
+      alert("Session ended successfully! Check previous sessions to confirm.");
     } catch (e) {
       console.error("Failed to end session - full error:", e);
       console.error("Error details:", {
@@ -2580,6 +2581,41 @@ export default function RepLogPage() {
       setActionLoading(false);
     }
   };
+
+  // ── TEST FUNCTION: Verify End Session Works ───────────────────────
+  // This function can be called from browser console to test the functionality
+  const testEndSession = async () => {
+    console.log("=== TESTING END SESSION FUNCTIONALITY ===");
+    
+    // Test 1: Check if we have an active session
+    if (!session) {
+      console.log("❌ No active session to test");
+      return;
+    }
+    
+    console.log("✅ Active session found:", {
+      id: session.id,
+      name: session.name,
+      isActive: session.isActive
+    });
+    
+    // Test 2: Check if getPreviousSessions works
+    try {
+      const previousSessions = await getPreviousSessions();
+      console.log("✅ getPreviousSessions works, found:", previousSessions.length, "previous sessions");
+      console.log("Previous sessions:", previousSessions.map(s => ({ id: s.id, name: s.name, endTime: s.endTime })));
+    } catch (e) {
+      console.error("❌ getPreviousSessions failed:", e);
+    }
+    
+    // Test 3: Check if we can call endSession (but don't actually end it)
+    console.log("📝 Ready to test endSession - call handleEndSession() to complete the test");
+  };
+
+  // Make test function available in browser console for debugging
+  if (typeof window !== 'undefined') {
+    (window as any).testEndSession = testEndSession;
+  }
 
   // ── handleStatsRefresh ───────────────────────────────────────
   const handleStatsRefresh = useCallback(() => {
