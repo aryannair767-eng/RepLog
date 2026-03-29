@@ -2429,21 +2429,42 @@ export default function RepLogPage() {
     putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => { });
 
     try {
-      // Server call — reconcile instantly via returned object
-      const { logId, setId } = await addExerciseToSession(session.id, exerciseId);
-      
-      const serverSession = {
-        ...optimisticSession,
-        logs: optimisticSession.logs.map(l => {
-          if (l.id === tempLogId) {
-            return { ...l, id: logId, sets: [{ ...l.sets[0], id: setId }] };
-          }
-          return l;
-        })
-      };
-      
-      setSession(serverSession);
-      putData(STORES.SESSIONS, { ...serverSession, id: "active" }).catch(() => { });
+      await addExerciseToSession(session.id, exerciseId);
+      const serverSession = await getActiveSession();
+      if (serverSession) {
+        // Only update the session logs for exercises that 
+        // don't have any user input yet — preserve any sets 
+        // the user has already started filling in
+        setSession(prev => {
+          if (!prev) return serverSession;
+          
+          // For each log in the server response, check if 
+          // the user has already started inputting data
+          const mergedLogs = serverSession.logs.map(serverLog => {
+            const localLog = prev.logs.find(
+              l => l.exerciseId === serverLog.exerciseId
+            );
+            
+            // If local log has sets with any user input, 
+            // keep the local version
+            if (localLog) {
+              const hasInput = localLog.sets.some(
+                s => s.weight > 0 || s.reps > 0 || 
+                     s.rpe > 0 || s.rir > 0 || s.isCompleted
+              );
+              if (hasInput) return localLog;
+            }
+            
+            return serverLog;
+          });
+          
+          return { ...serverSession, logs: mergedLogs };
+        });
+        
+        putData(STORES.SESSIONS, { 
+          ...serverSession, id: "active" 
+        }).catch(() => { });
+      }
     } catch (e) {
       console.error("Failed to add exercise:", e);
     }
