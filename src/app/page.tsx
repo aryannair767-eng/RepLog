@@ -664,20 +664,29 @@ const ExerciseCard = React.memo(function ExerciseCard({
     try {
       const realId = await addSet(log.id);
       // Replace the temp ID with the real DB id in React state
-      setSets((prev) => prev.map((s) => {
-        if (s.id === tempId) {
-          const syncId = realId;
-          // Defer sync: push any values typed during the latency phase up to the server now
-          if (s.weight > 0) updateSetField(syncId, "weight", s.weight).catch(()=>{});
-          if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(()=>{});
-          if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(()=>{});
-          if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(()=>{});
-          if (s.isCompleted) toggleSetComplete(syncId, true).catch(()=>{});
-          
-          return { ...s, id: syncId };
+      setSets((prev) => {
+        const stillExists = prev.some(s => s.id === tempId);
+        if (!stillExists) {
+          // User deleted this set before the server even responded!
+          removeSet(realId).catch(()=>{});
+          return prev;
         }
-        return s;
-      }));
+
+        return prev.map((s) => {
+          if (s.id === tempId) {
+            const syncId = realId;
+            // Defer sync: push any values typed during the latency phase up to the server now
+            if (s.weight > 0) updateSetField(syncId, "weight", s.weight).catch(()=>{});
+            if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(()=>{});
+            if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(()=>{});
+            if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(()=>{});
+            if (s.isCompleted) toggleSetComplete(syncId, true).catch(()=>{});
+            
+            return { ...s, id: syncId };
+          }
+          return s;
+        });
+      });
 
       // Also update IndexedDB with the real ID
       const latestSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
@@ -741,6 +750,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
     }
 
     try {
+      if (setId.startsWith("temp-")) return; // Let ghost-logic in handleAddSet clean the DB
       await removeSet(setId);
       onStatsRefresh();
     } catch {
@@ -2436,18 +2446,33 @@ export default function RepLogPage() {
   const handleAddExercise = async (exerciseId: string) => {
     // ── SWAP MODE: replacing an existing exercise ──
     if (swapTargetLogId) {
+      const targetId = swapTargetLogId;
+      setSwapTargetLogId(null);
+      setIsLibraryOpen(false);
+
+      const cachedEx = liftedExercisesRef.current.find(e => e.id === exerciseId);
+      setSession(prev => {
+        if (!prev) return prev;
+        const updatedLogs = prev.logs.map(log => log.id === targetId ? {
+          ...log,
+          exerciseId,
+          exercise: cachedEx ? {
+            id: cachedEx.id, name: cachedEx.name, primaryMuscle: cachedEx.primaryMuscle, secondaryMuscle: cachedEx.secondaryMuscle, mechanics: cachedEx.mechanics
+          } : { ...log.exercise, name: "Loading..." }
+        } : log);
+        const optimistic = { ...prev, logs: updatedLogs };
+        putData(STORES.SESSIONS, { ...optimistic, id: "active" }).catch(()=>{});
+        return optimistic;
+      });
+
       try {
-        await updateWorkoutLogExercise(swapTargetLogId, exerciseId);
-        setSwapTargetLogId(null);
+        await updateWorkoutLogExercise(targetId, exerciseId);
         const updated = await getActiveSession();
         setSession(updated);
-        if (updated) await putData(STORES.SESSIONS, {
-          ...updated, id: "active"
-        });
+        if (updated) await putData(STORES.SESSIONS, { ...updated, id: "active" });
       } catch (e) {
         console.error("Failed to swap exercise:", e);
       }
-      setIsLibraryOpen(false);
       return;
     }
 
