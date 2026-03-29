@@ -2429,45 +2429,56 @@ export default function RepLogPage() {
     putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => { });
 
     try {
-      await addExerciseToSession(session.id, exerciseId);
-      const serverSession = await getActiveSession();
-      if (serverSession) {
-        // Only update the session logs for exercises that 
-        // don't have any user input yet — preserve any sets 
-        // the user has already started filling in
-        setSession(prev => {
-          if (!prev) return serverSession;
-          
-          // For each log in the server response, check if 
-          // the user has already started inputting data
-          const mergedLogs = serverSession.logs.map(serverLog => {
-            const localLog = prev.logs.find(
-              l => l.exerciseId === serverLog.exerciseId
-            );
-            
-            // If local log has sets with any user input, 
-            // keep the local version
-            if (localLog) {
-              const hasInput = localLog.sets.some(
-                s => s.weight > 0 || s.reps > 0 || 
-                     s.rpe > 0 || s.rir > 0 || s.isCompleted
-              );
-              if (hasInput) return localLog;
-            }
-            
-            return serverLog;
-          });
-          
-          return { ...serverSession, logs: mergedLogs };
+    await addExerciseToSession(session.id, exerciseId);
+    
+    // Only fetch server session to get the real log ID
+    // Do NOT replace the entire session state
+    const serverSession = await getActiveSession();
+    if (serverSession) {
+      // Find the real log ID for the newly added exercise
+      // by finding a log that exists in server but not in 
+      // our current optimistic state
+      setSession(prev => {
+        if (!prev) return serverSession;
+        
+        // Find the temp log we added optimistically
+        const tempLog = prev.logs.find(
+          l => l.id.startsWith("temp-log-")
+        );
+        if (!tempLog) return prev;
+        
+        // Find the corresponding real log in server response
+        // Match by exerciseId since that's the only stable ID
+        const realLog = serverSession.logs.find(
+          l => l.exerciseId === tempLog.exerciseId && 
+               !l.id.startsWith("temp-log-")
+        );
+        if (!realLog) return prev;
+        
+        // Replace ONLY the temp log ID with the real ID
+        // Keep ALL other state exactly as is — especially
+        // any sets the user has already filled in
+        const updatedLogs = prev.logs.map(l => {
+          if (l.id === tempLog.id) {
+            return {
+              ...l,           // keep all local state
+              id: realLog.id, // only update the real ID
+            };
+          }
+          return l;
         });
         
-        putData(STORES.SESSIONS, { 
-          ...serverSession, id: "active" 
-        }).catch(() => { });
-      }
-    } catch (e) {
-      console.error("Failed to add exercise:", e);
+        return { ...prev, logs: updatedLogs };
+      });
+      
+      // Update IndexedDB with the latest state
+      putData(STORES.SESSIONS, { 
+        ...serverSession, id: "active" 
+      }).catch(() => {});
     }
+  } catch (e) {
+    console.error("Failed to add exercise:", e);
+  }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
