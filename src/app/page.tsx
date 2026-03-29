@@ -2396,18 +2396,7 @@ export default function RepLogPage() {
     if (!session) return;
     setActionLoading(true);
     try {
-      // Check if session is empty (0 exercises or 0 completed sets)
-      const totalCompletedSets = session.logs.reduce(
-        (sum, log) => sum + log.sets.filter(s => s.isCompleted).length, 0
-      );
-      const isEmpty = session.logs.length === 0 || totalCompletedSets === 0;
-
-      if (isEmpty) {
-        // Discard the session entirely if no exercises or sets were logged
-        await deleteSession(session.id);
-      } else {
-        await endSession(session.id);
-      }
+      await endSession(session.id);
 
       setSession(null);
       // Remove from active cache but could store in history if needed
@@ -2524,77 +2513,66 @@ export default function RepLogPage() {
       const serverSession = await getActiveSession();
 
       if (serverSession) {
-        // ── STEP 4: Smart merge ──
-        // Never blindly replace state — always merge to 
-        // preserve user inputs while adopting real IDs
         setSession(prev => {
           if (!prev) return serverSession;
 
-          const mergedLogs = serverSession.logs.map(serverLog => {
-            // Match by exerciseId — the only stable identifier
-            // (local log has temp ID, server log has real ID)
-            const localLog = prev.logs.find(
-              l => l.exerciseId === serverLog.exerciseId
-            );
+          // Find the temp log we just added — it's the only 
+          // one with a temp ID starting with "temp-log-"
+          const tempLog = prev.logs.find(
+            l => l.id === tempLogId
+          );
+          if (!tempLog) return prev;
 
-            if (localLog) {
-              // Check if user typed ANYTHING in any field
-              const userHasTyped = localLog.sets.some(s =>
-                s.weight !== 0 ||
-                s.reps !== 0 ||
-                s.rpe !== 0 ||
-                s.rir !== 0 ||
-                s.isCompleted === true
-              );
+          // Find its real counterpart in the server response
+          // by matching orderIndex since that's stable
+          const realLog = serverSession.logs.find(
+            l => l.orderIndex === tempLog.orderIndex &&
+                 l.exerciseId === tempLog.exerciseId
+          );
+          if (!realLog) return prev;
 
-              // Find the corresponding real set ID from server
-              // Map each local set to its real server set by index
-              const mergedSets = localLog.sets.map((localSet, index) => {
-                const serverSet = serverLog.sets[index];
-                
-                // --- SYNC LOCAL->SERVER DELTAS DEFERRED ---
-                // If user typed values while the real ID was generating, push them to the DB now
-                if (serverSet && localSet.id.startsWith("temp-")) {
-                   if (localSet.weight > 0) updateSetField(serverSet.id, "weight", localSet.weight).catch(()=>{});
-                   if (localSet.reps > 0) updateSetField(serverSet.id, "reps", localSet.reps).catch(()=>{});
-                   if (localSet.rpe > 0) updateSetField(serverSet.id, "rpe", localSet.rpe).catch(()=>{});
-                   if (localSet.rir > 0) updateSetField(serverSet.id, "rir", localSet.rir).catch(()=>{});
-                   if (localSet.isCompleted) {
-                     toggleSetComplete(serverSet.id, true).catch(()=>{});
-                   }
-                }
-                
-                return {
-                  ...localSet,                    // keep user inputs
-                  id: serverSet?.id ?? localSet.id, // adopt real ID safely
-                };
-              });
-
+          // Only update the IDs — keep everything else local
+          const updatedLogs = prev.logs.map(l => {
+            if (l.id !== tempLogId) return l; // leave all other logs untouched
+            
+            // Update set IDs and push any typed values to server
+            const updatedSets = l.sets.map((localSet, index) => {
+              const serverSet = realLog.sets[index];
+              if (serverSet && localSet.id.startsWith("temp-")) {
+                // Push typed values to real set ID in background
+                if (localSet.weight > 0) 
+                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => {});
+                if (localSet.reps > 0) 
+                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => {});
+                if (localSet.rpe > 0) 
+                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => {});
+                if (localSet.rir > 0) 
+                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => {});
+                if (localSet.isCompleted) 
+                  toggleSetComplete(serverSet.id, true).catch(() => {});
+              }
               return {
-                ...localLog,          // keep all local data
-                id: serverLog.id,     // CRITICAL: use real log ID
-                sets: userHasTyped    // preserve inputs if user typed
-                  ? mergedSets        // user typed — keep their data
-                  : serverLog.sets,   // user hasn't typed — use server
+                ...localSet,
+                id: serverSet?.id ?? localSet.id,
               };
-            }
+            });
 
-            // No local match — use server log as-is
-            return serverLog;
+            return {
+              ...l,
+              id: realLog.id,
+              sets: updatedSets,
+            };
           });
 
-          return { ...serverSession, logs: mergedLogs };
+          return { ...prev, logs: updatedLogs };
         });
 
-        // Update IndexedDB with server state for offline sync
         putData(STORES.SESSIONS, {
           ...serverSession, id: "active",
-        }).catch(() => { });
+        }).catch(() => {});
       }
     } catch (e) {
       console.error("Failed to add exercise to server:", e);
-      // Optimistic state remains — user can continue logging
-      // Data will be out of sync but not lost
     }
   };
 
