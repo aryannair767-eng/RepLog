@@ -692,6 +692,17 @@ const ExerciseCard = React.memo(function ExerciseCard({
     };
     const updatedSets = [...sets, newSet];
     setSets(updatedSets);
+    
+    // CRITICAL: Update fieldValues immediately for the new set
+    setFieldValues(prev => ({
+      ...prev,
+      [tempId]: {
+        weight: "",
+        reps: "",
+        rpe: "",
+        rir: "", // Empty string for null RIR
+      }
+    }));
 
     // Instant IndexedDB update
     const localSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
@@ -2546,7 +2557,7 @@ export default function RepLogPage() {
         weight: 0,
         reps: 0,
         rpe: 0,
-        rir: 0,
+        rir: null, // FIXED: RIR starts as null, not 0
         isCompleted: false,
       }],
     };
