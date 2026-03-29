@@ -2337,6 +2337,9 @@ export default function RepLogPage() {
       setProgressRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("Failed to end session:", e);
+      setActionLoading(false);
+      // Reset session state so user can try again
+      return;
     } finally {
       setActionLoading(false);
     }
@@ -2767,7 +2770,7 @@ export default function RepLogPage() {
         {activeTab === "dashboard" && (
           <div>
             {/* Welcome message strictly for brand new users */}
-            {!statsLoading && (stats?.totalSessionsEver ?? 0) === 0 && (
+            {!statsLoading && (stats?.totalCompletedSets ?? 0) === 0 && (
               <div style={{
                 background: "var(--done-bg)",
                 border: `1px solid var(--accent-color)`,
@@ -3111,7 +3114,7 @@ export default function RepLogPage() {
               fontSize: 18, fontWeight: 900, textTransform: "uppercase",
               letterSpacing: "-0.03em", color: THEME.textPrimary, margin: "0 0 8px",
             }}>
-              {(stats?.totalSessionsEver ?? 0) === 0 ? "Start Your First Session" : "Start Another Session"}
+              {(stats?.totalCompletedSets ?? 0) === 0 ? "Start Your First Session" : "Start Another Session"}
             </h2>
             <p style={{ ...monoLabel(10, THEME.textDim), marginBottom: 16 }}>
               Click &quot;New Session&quot; in the header to begin logging.
@@ -3159,7 +3162,7 @@ export default function RepLogPage() {
             onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.01)")}
             onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            {actionLoading ? "STARTING SESSION..." : ((stats?.totalSessionsEver ?? 0) === 0 ? "START FIRST SESSION" : "START NEW SESSION")}
+            {actionLoading ? "STARTING SESSION..." : ((stats?.totalCompletedSets ?? 0) === 0 ? "START FIRST SESSION" : "START NEW SESSION")}
           </button>
         </div>
       )}

@@ -57,6 +57,7 @@ export interface DashboardStats {
   recentPRs: { exerciseName: string; weight: number; date: string }[];
   muscleDistribution: { muscle: string; sets: number }[];
   totalSessionsEver?: number;
+  totalCompletedSets: number;
 }
 
 // A small, read-only summary for the "Previous Sessions" modal

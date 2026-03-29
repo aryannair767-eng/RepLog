@@ -122,8 +122,20 @@ export async function createSession(): Promise<WorkoutSessionData> {
 // Marks a session as finished and records the end time.
 export async function endSession(sessionId: string): Promise<void> {
   const userId = await getAuthUserId();
-  await prisma.workoutSession.updateMany({
+  
+  // First verify the session belongs to this user
+  const session = await prisma.workoutSession.findFirst({
     where: { id: sessionId, userId },
+  });
+  
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found for user ${userId}`);
+  }
+  
+  // Use update (not updateMany) so it throws if the row 
+  // doesn't exist instead of silently doing nothing
+  await prisma.workoutSession.update({
+    where: { id: sessionId },
     data: {
       isActive: false,
       endTime: new Date(),
@@ -150,7 +162,19 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
   unstable_noStore();
   const userId = await getAuthUserId();
   const sessions = await prisma.workoutSession.findMany({
-    where: { userId, isActive: false },
+    where: {
+      userId,
+      isActive: false,
+      logs: {
+        some: {
+          sets: {
+            some: {
+              isCompleted: true
+            }
+          }
+        }
+      }
+    },
     orderBy: { startTime: "desc" },
     take: 20,
     include: {
@@ -172,7 +196,7 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
     completedSetCount: s.logs.reduce(
       (sum, log) => sum + log.sets.filter(set => set.isCompleted).length, 0
     ),
-  })).filter(s => !(s.completedSetCount === 0 && s.logCount === 0));
+  }));
 }
 
 // ── getSessionDetail ─────────────────────────────────────────

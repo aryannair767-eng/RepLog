@@ -33,7 +33,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   // ── Parallel DB fetching ──
-  const [thisWeekSets, heavySets, totalSessionsEver] = await Promise.all([
+  const [thisWeekSets, heavySets, totalSessionsEver, totalCompletedSets] = await Promise.all([
     prisma.setLog.findMany({
       where: {
         isCompleted: true,
@@ -63,6 +63,12 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       take: 40,
     }),
     prisma.workoutSession.count({ where: { userId, isActive: false } }),
+    prisma.setLog.count({
+      where: {
+        isCompleted: true,
+        workoutLog: { session: { userId } }
+      }
+    }),
   ]);
 
   // Calculations
@@ -124,6 +130,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     recentPRs,
     muscleDistribution,
     totalSessionsEver,
+    totalCompletedSets,
   };
 }
 
