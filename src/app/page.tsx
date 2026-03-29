@@ -2321,12 +2321,16 @@ export default function RepLogPage() {
         const tabs: ("dashboard" | "logger" | "progress" | "library")[] = ["dashboard", "logger", "progress", "library"];
         const currentIndex = tabs.indexOf(activeTab);
 
-        // FIXED: Block right swipe from Progress tab to prevent wrapping
+        // Left swipe: move to next tab
         if (isLeftSwipe && currentIndex < tabs.length - 1) {
           setActiveTab(tabs[currentIndex + 1]);
-        } else if (isRightSwipe && currentIndex > 0 && activeTab !== "progress") {
-          // FIXED: Only allow right swipe if not on Progress tab
-          setActiveTab(tabs[currentIndex - 1]);
+        } else if (isRightSwipe && currentIndex > 0) {
+          // Right swipe: move to previous tab, with special case for Progress → Logger
+          if (activeTab === "progress") {
+            setActiveTab("logger"); // Allow Progress → Logger specifically
+          } else {
+            setActiveTab(tabs[currentIndex - 1]); // Normal right swipe behavior
+          }
         }
       }
     };
