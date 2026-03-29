@@ -2359,126 +2359,143 @@ export default function RepLogPage() {
 
   // ── handleAddExercise ─────────────────────────────────────────
   const handleAddExercise = async (exerciseId: string) => {
+    // ── SWAP MODE: replacing an existing exercise ──
     if (swapTargetLogId) {
-      // Optimitistic UI for swapping
-      const newEx = liftedExercisesRef.current.find(e => e.id === exerciseId);
-      if (session && newEx) {
-        const swappedSession = {
-          ...session,
-          logs: session.logs.map(l => {
-            if (l.id === swapTargetLogId) {
-              return { 
-                ...l, 
-                exerciseId, 
-                exercise: { id: newEx.id, name: newEx.name, primaryMuscle: newEx.primaryMuscle, secondaryMuscle: newEx.secondaryMuscle, mechanics: newEx.mechanics }
-              };
-            }
-            return l;
-          })
-        };
-        setSession(swappedSession);
-        putData(STORES.SESSIONS, { ...swappedSession, id: "active" }).catch(() => {});
-      }
-
-      setIsLibraryOpen(false);
-      setSwapTargetLogId(null);
-
-      // Background sync
       try {
         await updateWorkoutLogExercise(swapTargetLogId, exerciseId);
+        setSwapTargetLogId(null);
+        const updated = await getActiveSession();
+        setSession(updated);
+        if (updated) await putData(STORES.SESSIONS, {
+          ...updated, id: "active"
+        });
       } catch (e) {
         console.error("Failed to swap exercise:", e);
       }
+      setIsLibraryOpen(false);
       return;
     }
 
     if (!session) return;
 
-    // STEP 1: Build optimistic log from cache — instant, no async
-    const cachedEx = liftedExercisesRef.current.find(e => e.id === exerciseId);
+    // ── STEP 1: Build optimistic exercise card ──
+    // Use cached exercise data for instant name display
+    const cachedEx = liftedExercisesRef.current.find(
+      e => e.id === exerciseId
+    );
     const tempLogId = `temp-log-${Date.now()}`;
+    const tempSetId = `temp-set-${Date.now()}`;
+    
     const tempLog: WorkoutLogData = {
       id: tempLogId,
       exerciseId,
       orderIndex: session.logs.length,
       exercise: cachedEx
-        ? { id: cachedEx.id, name: cachedEx.name, primaryMuscle: cachedEx.primaryMuscle, secondaryMuscle: cachedEx.secondaryMuscle, mechanics: cachedEx.mechanics }
-        : { id: exerciseId, name: "Loading...", primaryMuscle: "", secondaryMuscle: null, mechanics: "" },
-      sets: [
-        {
-          id: `temp-set-${Date.now()}`,
-          setNumber: 1,
-          weight: 0,
-          reps: 0,
-          rpe: 0,
-          rir: 0,
-          isCompleted: false,
-        }
-      ],
+        ? {
+            id: cachedEx.id,
+            name: cachedEx.name,
+            primaryMuscle: cachedEx.primaryMuscle,
+            secondaryMuscle: cachedEx.secondaryMuscle,
+            mechanics: cachedEx.mechanics,
+          }
+        : {
+            id: exerciseId,
+            name: "Loading...",
+            primaryMuscle: "",
+            secondaryMuscle: null,
+            mechanics: "",
+          },
+      sets: [{
+        id: tempSetId,
+        setNumber: 1,
+        weight: 0,
+        reps: 0,
+        rpe: 0,
+        rir: 0,
+        isCompleted: false,
+      }],
     };
 
-    // STEP 2: Update React state and switch tabs IMMEDIATELY —
-    // no awaits before this point
-    const optimisticSession = { ...session, logs: [...session.logs, tempLog] };
+    // ── STEP 2: Show instantly, switch tab, close library ──
+    // Everything happens before any await — pure instant UI
+    const optimisticSession = {
+      ...session,
+      logs: [...session.logs, tempLog],
+    };
     setSession(optimisticSession);
     setActiveTab("logger");
     setIsLibraryOpen(false);
-
-    // STEP 3: Fire IndexedDB and server calls in background —
-    // do NOT await these before the UI update above
-    putData(STORES.SESSIONS, { ...optimisticSession, id: "active" }).catch(() => { });
-
-    try {
-    await addExerciseToSession(session.id, exerciseId);
     
-    // Only fetch server session to get the real log ID
-    // Do NOT replace the entire session state
-    const serverSession = await getActiveSession();
-    if (serverSession) {
-      // Find the real log ID for the newly added exercise
-      // by finding a log that exists in server but not in 
-      // our current optimistic state
-      setSession(prev => {
-        if (!prev) return serverSession;
-        
-        // Find the temp log we added optimistically
-        const tempLog = prev.logs.find(
-          l => l.id.startsWith("temp-log-")
-        );
-        if (!tempLog) return prev;
-        
-        // Find the corresponding real log in server response
-        // Match by exerciseId since that's the only stable ID
-        const realLog = serverSession.logs.find(
-          l => l.exerciseId === tempLog.exerciseId && 
-               !l.id.startsWith("temp-log-")
-        );
-        if (!realLog) return prev;
-        
-        // Replace ONLY the temp log ID with the real ID
-        // Keep ALL other state exactly as is — especially
-        // any sets the user has already filled in
-        const updatedLogs = prev.logs.map(l => {
-          if (l.id === tempLog.id) {
-            return {
-              ...l,           // keep all local state
-              id: realLog.id, // only update the real ID
-            };
-          }
-          return l;
-        });
-        
-        return { ...prev, logs: updatedLogs };
-      });
+    // Fire IndexedDB write in background — do not await
+    putData(STORES.SESSIONS, {
+      ...optimisticSession, id: "active",
+    }).catch(() => {});
+
+    // ── STEP 3: Save to server in background ──
+    try {
+      await addExerciseToSession(session.id, exerciseId);
+      const serverSession = await getActiveSession();
       
-      // Update IndexedDB with the latest state
-      putData(STORES.SESSIONS, { 
-        ...serverSession, id: "active" 
-      }).catch(() => {});
+      if (serverSession) {
+        // ── STEP 4: Smart merge ──
+        // Never blindly replace state — always merge to 
+        // preserve user inputs while adopting real IDs
+        setSession(prev => {
+          if (!prev) return serverSession;
+
+          const mergedLogs = serverSession.logs.map(serverLog => {
+            // Match by exerciseId — the only stable identifier
+            // (local log has temp ID, server log has real ID)
+            const localLog = prev.logs.find(
+              l => l.exerciseId === serverLog.exerciseId
+            );
+
+            if (localLog) {
+              // Check if user typed ANYTHING in any field
+              const userHasTyped = localLog.sets.some(s =>
+                s.weight !== 0 ||
+                s.reps !== 0 ||
+                s.rpe !== 0 ||
+                s.rir !== 0 ||
+                s.isCompleted === true
+              );
+
+              // Find the corresponding real set ID from server
+              // Map each local set to its real server set by index
+              const mergedSets = localLog.sets.map((localSet, index) => {
+                const serverSet = serverLog.sets[index];
+                return {
+                  ...localSet,                    // keep user inputs
+                  id: serverSet?.id ?? localSet.id, // use real set ID
+                };
+              });
+
+              return {
+                ...localLog,          // keep all local data
+                id: serverLog.id,     // CRITICAL: use real log ID
+                sets: userHasTyped    // preserve inputs if user typed
+                  ? mergedSets        // user typed — keep their data
+                  : serverLog.sets,   // user hasn't typed — use server
+              };
+            }
+
+            // No local match — use server log as-is
+            return serverLog;
+          });
+
+          return { ...serverSession, logs: mergedLogs };
+        });
+
+        // Update IndexedDB with server state for offline sync
+        putData(STORES.SESSIONS, {
+          ...serverSession, id: "active",
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.error("Failed to add exercise to server:", e);
+      // Optimistic state remains — user can continue logging
+      // Data will be out of sync but not lost
     }
-  } catch (e) {
-    console.error("Failed to add exercise:", e);
-  }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
