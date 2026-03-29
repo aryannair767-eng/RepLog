@@ -422,7 +422,9 @@ const SetRow = React.memo(function SetRow({
             step={field === "weight" || field === "rpe" ? "0.1" : "1"}
             inputMode={field === "weight" || field === "rpe" ? "decimal" : "numeric"}
             value={
-              fieldValues[field] === 0 ? "" : fieldValues[field]
+              fieldValues[field] === 0 && (field === "weight" || field === "reps") && !set.isCompleted
+                ? "" 
+                : fieldValues[field]
             }
             placeholder="—"
             onChange={(e) => {
@@ -574,6 +576,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
     // Trigger rest timer when completing a set
     if (newVal) setRestTrigger((t) => t + 1);
 
+    if (setId.startsWith("temp-")) return; // Defer DB sync until smart merge gives us the real ID
+
     try {
       // Step 2: save to server
       await toggleSetComplete(setId, newVal);
@@ -619,6 +623,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
           // IndexedDB write failed — non-critical
         }
 
+        if (setId.startsWith("temp-")) return; // Defer until real ID arrives
+
         // Server write
         try {
           await updateSetField(setId, field, value);
@@ -658,7 +664,20 @@ const ExerciseCard = React.memo(function ExerciseCard({
     try {
       const realId = await addSet(log.id);
       // Replace the temp ID with the real DB id in React state
-      setSets((prev) => prev.map((s) => s.id === tempId ? { ...s, id: realId } : s));
+      setSets((prev) => prev.map((s) => {
+        if (s.id === tempId) {
+          const syncId = realId;
+          // Defer sync: push any values typed during the latency phase up to the server now
+          if (s.weight > 0) updateSetField(syncId, "weight", s.weight).catch(()=>{});
+          if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(()=>{});
+          if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(()=>{});
+          if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(()=>{});
+          if (s.isCompleted) toggleSetComplete(syncId, true).catch(()=>{});
+          
+          return { ...s, id: syncId };
+        }
+        return s;
+      }));
 
       // Also update IndexedDB with the real ID
       const latestSession = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
@@ -2372,7 +2391,12 @@ export default function RepLogPage() {
       );
       const isEmpty = session.logs.length === 0 || totalCompletedSets === 0;
 
-      await endSession(session.id);
+      if (isEmpty) {
+        // Discard the session entirely if no exercises or sets were logged
+        await deleteSession(session.id);
+      } else {
+        await endSession(session.id);
+      }
 
       setSession(null);
       // Remove from active cache but could store in history if needed
@@ -2516,9 +2540,22 @@ export default function RepLogPage() {
               // Map each local set to its real server set by index
               const mergedSets = localLog.sets.map((localSet, index) => {
                 const serverSet = serverLog.sets[index];
+                
+                // --- SYNC LOCAL->SERVER DELTAS DEFERRED ---
+                // If user typed values while the real ID was generating, push them to the DB now
+                if (serverSet && localSet.id.startsWith("temp-")) {
+                   if (localSet.weight > 0) updateSetField(serverSet.id, "weight", localSet.weight).catch(()=>{});
+                   if (localSet.reps > 0) updateSetField(serverSet.id, "reps", localSet.reps).catch(()=>{});
+                   if (localSet.rpe > 0) updateSetField(serverSet.id, "rpe", localSet.rpe).catch(()=>{});
+                   if (localSet.rir > 0) updateSetField(serverSet.id, "rir", localSet.rir).catch(()=>{});
+                   if (localSet.isCompleted) {
+                     toggleSetComplete(serverSet.id, true).catch(()=>{});
+                   }
+                }
+                
                 return {
                   ...localSet,                    // keep user inputs
-                  id: localSet.id,
+                  id: serverSet?.id ?? localSet.id, // adopt real ID safely
                 };
               });
 
