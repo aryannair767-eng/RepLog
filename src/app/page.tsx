@@ -694,12 +694,14 @@ const ExerciseCard = React.memo(function ExerciseCard({
   };
 
   return (
-    <div style={{
-      border: `1px solid ${THEME.border}`,
-      background: THEME.surface2,
-      marginBottom: 14,
-      borderRadius: THEME.borderRadius,
-    }}>
+    <div
+      id={`exercise-card-${log.id}`}
+      style={{
+        border: `1px solid ${THEME.border}`,
+        background: THEME.surface2,
+        marginBottom: 14,
+        borderRadius: THEME.borderRadius,
+      }}>
       {/* Header: Exercise Name + Mechanics + Actions */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "flex-start",
@@ -2085,6 +2087,7 @@ export default function RepLogPage() {
   const lastStatsFetchRef = useRef<number>(0);
   const statsRefreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const liftedExercisesRef = useRef<ExerciseData[]>([]);
+  const newLogIdRef = useRef<string | null>(null);
 
   // ── Swipe Navigation for Mobile ──────────────────────────────
   // Detects horizontal swipes to switch between Dashboard, Logger, Progress, Library
@@ -2260,6 +2263,17 @@ export default function RepLogPage() {
   }, [activeTab]);
 
   useEffect(() => {
+    if (!newLogIdRef.current || !session?.logs) return;
+    setTimeout(() => {
+      const el = document.getElementById(`exercise-card-${newLogIdRef.current}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        newLogIdRef.current = null;
+      }
+    }, 100);
+  }, [session?.logs]);
+
+  useEffect(() => {
     if (!showPreviousSessions) return;
 
     let cancelled = false;
@@ -2384,6 +2398,7 @@ export default function RepLogPage() {
       e => e.id === exerciseId
     );
     const tempLogId = `temp-log-${Date.now()}`;
+    newLogIdRef.current = tempLogId;
     const tempSetId = `temp-set-${Date.now()}`;
 
     const tempLog: WorkoutLogData = {
