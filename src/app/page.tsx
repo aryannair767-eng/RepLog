@@ -2590,6 +2590,7 @@ export default function RepLogPage() {
     // Test 1: Check if we have an active session
     if (!session) {
       console.log("❌ No active session to test");
+      alert("No active session found. Start a session first.");
       return;
     }
     
@@ -2609,12 +2610,42 @@ export default function RepLogPage() {
     }
     
     // Test 3: Check if we can call endSession (but don't actually end it)
-    console.log("📝 Ready to test endSession - call handleEndSession() to complete the test");
+    console.log("📝 Ready to test endSession - click END SESSION button to complete the test");
+    alert("Test complete! Check console for details. Now click END SESSION to test the actual functionality.");
   };
 
-  // Make test function available in browser console for debugging
+  // ── DIRECT VERIFICATION: Check Session in Database ─────────────────
+  const verifySessionInDB = async () => {
+    if (!session) {
+      alert("No active session to verify");
+      return;
+    }
+    
+    try {
+      console.log("=== VERIFYING SESSION IN DATABASE ===");
+      
+      // This would require a new server action, but let's simulate it
+      const previousSessions = await getPreviousSessions();
+      const currentSession = previousSessions.find(s => s.id === session.id);
+      
+      if (currentSession) {
+        console.log("✅ Session found in previous sessions (already ended):", currentSession);
+        alert("Session is already in previous sessions!");
+      } else {
+        console.log("📝 Session not found in previous sessions (still active)");
+        alert("Session is still active - click END SESSION to test.");
+      }
+    } catch (e) {
+      console.error("❌ Verification failed:", e);
+      alert("Verification failed: " + (e instanceof Error ? e.message : 'Unknown error'));
+    }
+  };
+
+  // Make test functions available in browser console for debugging
   if (typeof window !== 'undefined') {
     (window as any).testEndSession = testEndSession;
+    (window as any).verifySessionInDB = verifySessionInDB;
+    (window as any).currentSession = session;
   }
 
   // ── handleStatsRefresh ───────────────────────────────────────
@@ -2908,6 +2939,46 @@ export default function RepLogPage() {
           >
             {actionLoading ? "..." : (session?.isActive ? "END SESSION" : "NEW SESSION")}
           </button>
+
+          {/* TEST BUTTON - Only visible in development */}
+          {process.env.NODE_ENV === "development" && (
+            <>
+              <button
+                onClick={testEndSession}
+                style={{
+                  background: THEME.danger,
+                  color: THEME.textPrimary,
+                  border: "none",
+                  padding: "7px 12px",
+                  ...brandLabel(9, THEME.textPrimary),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  fontSize: "10px",
+                  opacity: 0.8,
+                }}
+                title="Test end session functionality (dev only)"
+              >
+                TEST
+              </button>
+              <button
+                onClick={verifySessionInDB}
+                style={{
+                  background: THEME.surface,
+                  color: THEME.textPrimary,
+                  border: `1px solid ${THEME.border}`,
+                  padding: "7px 12px",
+                  ...brandLabel(9, THEME.textPrimary),
+                  cursor: "pointer",
+                  borderRadius: "var(--radius)",
+                  fontSize: "10px",
+                  opacity: 0.8,
+                }}
+                title="Verify session in database (dev only)"
+              >
+                VERIFY
+              </button>
+            </>
+          )}
 
           {/* Hamburger Button (3 lines) */}
           <button
