@@ -2537,11 +2537,19 @@ export default function RepLogPage() {
 
       // Refresh the Progress view so newly-completed sessions appear immediately
       setProgressRefreshKey((k) => k + 1);
+      
+      // Refresh previous sessions list to include the newly completed session
+      const updated = await getPreviousSessions();
+      setPreviousSessions(updated);
+      
+      // Show success feedback (optional - could be a toast)
+      console.log("Session ended successfully and saved to previous sessions");
     } catch (e) {
       console.error("Failed to end session:", e);
-      setActionLoading(false);
-      // Reset session state so user can try again
-      return;
+      // Show error feedback to user
+      alert("Failed to end session. Please try again.");
+      // Don't reset session state on error - let user try again
+      // setActionLoading(false) will be called in finally block
     } finally {
       setActionLoading(false);
     }
