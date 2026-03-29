@@ -396,7 +396,7 @@ const SetRow = React.memo(function SetRow({
   index: number;
   fieldValues: { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" };
   onToggle: (id: string, current: boolean) => void;
-  onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => void;
+  onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number | "") => void;
   onRemoveSet: (id: string) => void;
 }) {
   return (
@@ -421,12 +421,12 @@ const SetRow = React.memo(function SetRow({
             type="number"
             step={field === "weight" || field === "rpe" || field === "rir" ? "any" : "1"}
             inputMode={field === "weight" || field === "rpe" || field === "rir" ? "decimal" : "numeric"}
-            value={fieldValues[field] === "" ? "" : (fieldValues[field] === 0 && !set.isCompleted ? "" : fieldValues[field])}
+            value={fieldValues[field]}
             placeholder="—"
             onChange={(e) => {
               const raw = e.target.value;
               if (raw === "") {
-                onFieldChange(set.id, field, 0);
+                onFieldChange(set.id, field, "");
                 return;
               }
               const max = field === "rpe" || field === "rir" ? 10 : 999;
@@ -527,8 +527,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
     const initial: Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }> = {};
     for (const s of log.sets) {
       initial[s.id] = {
-        weight: s.weight,
-        reps: s.reps,
+        weight: s.weight === 0 ? "" : s.weight,
+        reps: s.reps === 0 ? "" : s.reps,
         rpe: s.rpe === 0 ? "" : s.rpe,
         rir: s.rir === 0 ? "" : s.rir,
       };
@@ -545,8 +545,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
           next[s.id] = prev[s.id];
         } else {
           next[s.id] = {
-            weight: s.weight,
-            reps: s.reps,
+            weight: s.weight === 0 ? "" : s.weight,
+            reps: s.reps === 0 ? "" : s.reps,
             rpe: s.rpe === 0 ? "" : s.rpe,
             rir: s.rir === 0 ? "" : s.rir,
           };
@@ -604,15 +604,17 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
   // ── handleFieldChange ────────────────────────────────────────
   const handleFieldChange = useCallback(
-    (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => {
+    (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number | "") => {
       // Update controlled input values immediately
       setFieldValues(prev => ({
         ...prev,
-        [setId]: { ...(prev[setId] ?? { weight: 0, reps: 0, rpe: "", rir: "" }), [field]: value }
+        [setId]: { ...(prev[setId] ?? { weight: "", reps: "", rpe: "", rir: "" }), [field]: value }
       }));
 
+      const numValue = value === "" ? 0 : value;
+
       // Instant local React state update
-      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: value } : s));
+      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: numValue } : s));
 
       // Debounce BOTH IndexedDB and server writes together
       const key = `${setId}-${field}`;
@@ -624,7 +626,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
           if (localSession) {
             const updatedLogs = localSession.logs.map(l => {
               if (l.id === log.id) {
-                return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: value } : s) };
+                return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: numValue } : s) };
               }
               return l;
             });
@@ -638,7 +640,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
         // Server write
         try {
-          await updateSetField(setId, field, value);
+          await updateSetField(setId, field, numValue);
         } catch {
           setError(`Delayed sync: ${field} will save when online.`);
         }
@@ -2513,12 +2515,15 @@ export default function RepLogPage() {
       const serverSession = await getActiveSession();
 
       if (serverSession) {
+        // Read absolute latest state to capture sets user typed during latency
+        const localActive = await getData(STORES.SESSIONS, "active") as WorkoutSessionData;
+        const currentLocalLogs = localActive ? localActive.logs : session.logs; // fallback
+
         setSession(prev => {
           if (!prev) return serverSession;
 
-          // Find the temp log we just added — it's the only 
-          // one with a temp ID starting with "temp-log-"
-          const tempLog = prev.logs.find(
+          // Find the temp log using CURRENT local state which holds user inputs
+          const tempLog = currentLocalLogs.find(
             l => l.id === tempLogId
           );
           if (!tempLog) return prev;
@@ -2536,7 +2541,7 @@ export default function RepLogPage() {
             if (l.id !== tempLogId) return l; // leave all other logs untouched
             
             // Update set IDs and push any typed values to server
-            const updatedSets = l.sets.map((localSet, index) => {
+            const updatedSets = tempLog.sets.map((localSet, index) => {
               const serverSet = realLog.sets[index];
               if (serverSet && localSet.id.startsWith("temp-")) {
                 // Push typed values to real set ID in background
@@ -2544,9 +2549,9 @@ export default function RepLogPage() {
                   updateSetField(serverSet.id, "weight", localSet.weight).catch(() => {});
                 if (localSet.reps > 0) 
                   updateSetField(serverSet.id, "reps", localSet.reps).catch(() => {});
-                if (localSet.rpe > 0) 
+                if (localSet.rpe !== 0) 
                   updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => {});
-                if (localSet.rir > 0) 
+                if (localSet.rir !== 0) 
                   updateSetField(serverSet.id, "rir", localSet.rir).catch(() => {});
                 if (localSet.isCompleted) 
                   toggleSetComplete(serverSet.id, true).catch(() => {});
@@ -2558,7 +2563,7 @@ export default function RepLogPage() {
             });
 
             return {
-              ...l,
+              ...tempLog, // Preserve full temp log state so remount matches UI exactly
               id: realLog.id,
               sets: updatedSets,
             };
@@ -2567,9 +2572,8 @@ export default function RepLogPage() {
           return { ...prev, logs: updatedLogs };
         });
 
-        putData(STORES.SESSIONS, {
-          ...serverSession, id: "active",
-        }).catch(() => {});
+        const nextState = { ...serverSession, id: "active" };
+        putData(STORES.SESSIONS, nextState).catch(() => {});
       }
     } catch (e) {
       console.error("Failed to add exercise to server:", e);
