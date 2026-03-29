@@ -143,7 +143,7 @@ export async function endSession(sessionId: string): Promise<void> {
     
     // Use update (not updateMany) so it throws if the row 
     // doesn't exist instead of silently doing nothing
-    await prisma.workoutSession.update({
+    const updatedSession = await prisma.workoutSession.update({
       where: { id: sessionId },
       data: {
         isActive: false,
@@ -151,7 +151,24 @@ export async function endSession(sessionId: string): Promise<void> {
       },
     });
 
-    console.log("Session successfully ended");
+    console.log("Session successfully ended:", {
+      id: updatedSession.id,
+      isActive: updatedSession.isActive,
+      endTime: updatedSession.endTime
+    });
+    
+    // Verify the update was successful
+    const verification = await prisma.workoutSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, isActive: true, endTime: true }
+    });
+    
+    console.log("Verification check:", verification);
+    
+    if (!verification || verification.isActive) {
+      throw new Error("Session update verification failed");
+    }
+    
     revalidatePath("/");
   } catch (error) {
     console.error("Error in endSession:", error);
@@ -179,15 +196,9 @@ export async function getPreviousSessions(): Promise<PreviousSessionSummary[]> {
     where: {
       userId,
       isActive: false,
-      logs: {
-        some: {
-          sets: {
-            some: {
-              isCompleted: true
-            }
-          }
-        }
-      }
+      // FIXED: Show all completed sessions, not just those with completed sets
+      // Previously: logs: { some: { sets: { some: { isCompleted: true } } } }
+      // Now: Just check that session is inactive (completed)
     },
     orderBy: { startTime: "desc" },
     take: 20,
