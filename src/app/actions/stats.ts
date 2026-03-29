@@ -70,21 +70,23 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       }
     }),
   ]);
-
   // Calculations
-  const loggedRpeSets = thisWeekSets.filter(s => s.rpe > 0);
-  const avgRpe = loggedRpeSets.length > 0 ? (loggedRpeSets.reduce((sum, s) => sum + s.rpe, 0) / loggedRpeSets.length) : 0;
+  const loggedRpeSets = thisWeekSets.filter(s => s.rpe !== null && s.rpe !== undefined && s.rpe > 0);
+  const validSets = thisWeekSets.filter(
+    s => Number(s.weight) > 0 && s.reps > 0
+  );
+  const avgRpe = loggedRpeSets.length > 0 ? (loggedRpeSets.reduce((sum, s) => sum + s.rpe!, 0) / loggedRpeSets.length) : 0;
 
-  const loggedRirSets = thisWeekSets.filter(s => s.rir !== null);
-  const avgRir = loggedRirSets.length > 0 ? (loggedRirSets.reduce((sum, s) => sum + s.rir, 0) / loggedRirSets.length) : 0;
+  const loggedRirSets = thisWeekSets.filter(s => s.rir !== null && s.rir !== undefined);
+  const avgRir = loggedRirSets.length > 0 ? (loggedRirSets.reduce((sum, s) => sum + s.rir!, 0) / loggedRirSets.length) : 0;
 
-  const weeklyVolumeKg = thisWeekSets.reduce((sum, s) => sum + Number(s.weight) * s.reps, 0);
+  const weeklyVolumeKg = validSets.reduce((sum, s) => sum + Number(s.weight) * s.reps, 0);
 
-  const sessionDays = new Set(thisWeekSets.map(s => new Date(s.workoutLog.session.startTime).toDateString()));
+  const sessionDays = new Set(validSets.map(s => new Date(s.workoutLog.session.startTime).toDateString()));
   const weeklyFrequency = sessionDays.size;
 
   const muscleCounts: Record<string, number> = {};
-  for (const s of thisWeekSets) {
+  for (const s of validSets) {
     const muscle = s.workoutLog.exercise.primaryMuscle;
     muscleCounts[muscle] = (muscleCounts[muscle] ?? 0) + 1;
   }
@@ -106,7 +108,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
     return {
       day,
-      totalSets: thisWeekSets.filter(s => {
+      totalSets: validSets.filter(s => {
         const sessionDate = new Date(s.workoutLog.session.startTime);
         return sessionDate >= target && sessionDate < targetEnd;
       }).length
@@ -125,7 +127,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     avgRir: Math.round(avgRir * 10) / 10,
     weeklyVolumeKg: Math.round(weeklyVolumeKg),
     weeklyFrequency,
-    totalSetsThisWeek: thisWeekSets.length,
+    totalSetsThisWeek: validSets.length,
     volumeByDay,
     recentPRs,
     muscleDistribution,
