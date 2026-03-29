@@ -519,7 +519,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
   const [sets, setSets] = useState<SetLogData[]>(log.sets);
   // Reset key — forces SetRow remount when inputs are cleared
   const [resetKey, setResetKey] = useState(0);
-  
+
   // Track continuous input values to survive mounting and key changes
   const [fieldValues, setFieldValues] = useState<
     Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }>
@@ -540,7 +540,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
     // 1. Detect if the server log suddenly provides REAL IDs for our TEMP sets
     let hasIdUpgrades = false;
     const idMap: Record<string, string> = {}; // old -> new
-    
+
     const upgradedSets = sets.map((s, i) => {
       const serverSet = log.sets[i];
       if (serverSet && serverSet.id !== s.id && s.id.startsWith("temp-")) {
@@ -711,12 +711,12 @@ const ExerciseCard = React.memo(function ExerciseCard({
         if (s.id === tempId) {
           const syncId = realId;
           // Defer sync: push any values typed during the latency phase up to the server now
-          if (s.weight > 0) updateSetField(syncId, "weight", s.weight).catch(()=>{});
-          if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(()=>{});
-          if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(()=>{});
-          if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(()=>{});
-          if (s.isCompleted) toggleSetComplete(syncId, true).catch(()=>{});
-          
+          if (s.weight > 0) updateSetField(syncId, "weight", s.weight).catch(() => { });
+          if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(() => { });
+          if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(() => { });
+          if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(() => { });
+          if (s.isCompleted) toggleSetComplete(syncId, true).catch(() => { });
+
           return { ...s, id: syncId };
         }
         return s;
@@ -2562,29 +2562,29 @@ export default function RepLogPage() {
           // by matching orderIndex since that's stable
           const realLog = serverSession.logs.find(
             l => l.orderIndex === tempLog.orderIndex &&
-                 l.exerciseId === tempLog.exerciseId
+              l.exerciseId === tempLog.exerciseId
           );
           if (!realLog) return prev;
 
           // Only update the IDs — keep everything else local
           const updatedLogs = prev.logs.map(l => {
             if (l.id !== tempLogId) return l; // leave all other logs untouched
-            
+
             // Update set IDs and push any typed values to server
             const updatedSets = tempLog.sets.map((localSet, index) => {
               const serverSet = realLog.sets[index];
               if (serverSet && localSet.id.startsWith("temp-")) {
                 // Push typed values to real set ID in background
-                if (localSet.weight > 0) 
-                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => {});
-                if (localSet.reps > 0) 
-                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => {});
-                if (localSet.rpe !== 0) 
-                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => {});
-                if (localSet.rir !== 0) 
-                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => {});
-                if (localSet.isCompleted) 
-                  toggleSetComplete(serverSet.id, true).catch(() => {});
+                if (localSet.weight > 0)
+                  updateSetField(serverSet.id, "weight", localSet.weight).catch(() => { });
+                if (localSet.reps > 0)
+                  updateSetField(serverSet.id, "reps", localSet.reps).catch(() => { });
+                if (localSet.rpe !== 0)
+                  updateSetField(serverSet.id, "rpe", localSet.rpe).catch(() => { });
+                if (localSet.rir !== 0)
+                  updateSetField(serverSet.id, "rir", localSet.rir).catch(() => { });
+                if (localSet.isCompleted)
+                  toggleSetComplete(serverSet.id, true).catch(() => { });
               }
               return {
                 ...localSet,
@@ -2603,7 +2603,7 @@ export default function RepLogPage() {
         });
 
         const nextState = { ...serverSession, id: "active" };
-        putData(STORES.SESSIONS, nextState).catch(() => {});
+        putData(STORES.SESSIONS, nextState).catch(() => { });
       }
     } catch (e) {
       console.error("Failed to add exercise to server:", e);
@@ -3391,7 +3391,7 @@ export default function RepLogPage() {
                     .sort((a, b) => a.orderIndex - b.orderIndex)
                     .map((log) => (
                       <ExerciseCard
-                        key={`${log.orderIndex}-${log.exerciseId}`}
+                        key={log.id}
                         log={log}
                         onRemove={() => handleRemoveExercise(log.id)}
                         onEdit={(logId) => {
