@@ -400,6 +400,37 @@ const SetRow = React.memo(function SetRow({
   onRemoveSet: (id: string) => void;
   isSavingSet: string | null;
 }) {
+  // MODULE 3: THE "FAST-PATH" KEYBOARD FLOW - Refs for focus management
+  const weightRef = useRef<HTMLInputElement>(null);
+  const repsRef = useRef<HTMLInputElement>(null);
+  const rpeRef = useRef<HTMLInputElement>(null);
+  const rirRef = useRef<HTMLInputElement>(null);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, field: string) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      
+      // MODULE 3: Fast-path keyboard navigation
+      if (field === "reps") {
+        weightRef.current?.focus();
+      } else if (field === "weight") {
+        rirRef.current?.focus();
+      } else if (field === "rir") {
+        // Auto-trigger save when Enter is pressed in RIR field
+        onToggle(set.id, set.isCompleted);
+      }
+    }
+  };
+
+  const getFieldRef = (field: string) => {
+    switch (field) {
+      case "weight": return weightRef;
+      case "reps": return repsRef;
+      case "rpe": return rpeRef;
+      case "rir": return rirRef;
+      default: return null;
+    }
+  };
   return (
     <div style={{
       display: "grid",
@@ -419,15 +450,22 @@ const SetRow = React.memo(function SetRow({
         {(["weight", "reps", "rpe", "rir"] as const).map((field) => (
           <input
             key={field}
+            ref={getFieldRef(field)}
             type="number"
             step={field === "weight" || field === "rpe" || field === "rir" ? "any" : "1"}
             inputMode={field === "weight" || field === "rpe" || field === "rir" ? "decimal" : "numeric"}
-            value={fieldValues[field]}
+            value={field === "rir" ? (set.rir ?? "") : fieldValues[field]} // MODULE 2: RIR uses set.rir ?? ""
             placeholder="—"
+            disabled={isSavingSet === set.id} // MODULE 1: Disable inputs while saving
             onChange={(e) => {
               const raw = e.target.value;
               if (raw === "") {
-                onFieldChange(set.id, field, "");
+                // MODULE 2: RIR change handler - convert empty string to null
+                if (field === "rir") {
+                  onFieldChange(set.id, field, null as any);
+                } else {
+                  onFieldChange(set.id, field, "");
+                }
                 return;
               }
               const max = field === "rpe" || field === "rir" ? 10 : 999;
@@ -435,6 +473,10 @@ const SetRow = React.memo(function SetRow({
               onFieldChange(set.id, field, val);
             }}
             onKeyDown={(e) => {
+              // MODULE 3: Fast-path keyboard navigation
+              handleKeyDown(e, field);
+              
+              // Existing validation logic
               const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"];
               if (field === "weight" || field === "rpe") allowed.push(".", ",");
               if (!allowed.includes(e.key) && !/^[0-9]$/.test(e.key)) {
@@ -595,8 +637,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
   // Error message shown in red if a DB save fails
   const [error, setError] = useState<string | null>(null);
-  // Track when sets are being saved to prevent double-clicks
-  const [isSavingSet, setIsSavingSet] = useState<string | null>(null);
+  // Track when sets are being saved to prevent double-clicks (MODULE 1: THE "SAVING" LOCK)
+  const [isSaving, setIsSaving] = useState<string | null>(null);
   // Increments each time a set is completed — triggers the rest timer
   const [restTrigger, setRestTrigger] = useState(0);
   // Debounce timers: key = "setId-field", value = timeout ID
@@ -608,8 +650,8 @@ const ExerciseCard = React.memo(function ExerciseCard({
   const handleToggle = useCallback(async (setId: string, current: boolean) => {
     const newVal = !current;
 
-    // Set loading state to prevent double-clicks
-    setIsSavingSet(setId);
+    // Set loading state to prevent double-clicks (MODULE 1: THE "SAVING" LOCK)
+    setIsSaving(setId);
 
     try {
       // Step 1: Save to server FIRST (pessimistic approach)
@@ -642,7 +684,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
       setSets((prev) => prev.map((s) => s.id === setId ? { ...s, isCompleted: current } : s));
     } finally {
       // Always clear loading state
-      setIsSavingSet(null);
+      setIsSaving(null);
     }
   }, [log.id]);
 
@@ -696,22 +738,24 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
   // ── handleAddSet ─────────────────────────────────────────────
   const handleAddSet = async () => {
-    // Set loading state to prevent double-clicks
-    setIsSavingSet("add-set");
+    // Set loading state to prevent double-clicks (MODULE 1: THE "SAVING" LOCK)
+    setIsSaving("add-set");
 
     try {
       // Step 1: Save to server FIRST (pessimistic approach)
       const realId = await addSet(log.id);
 
-      // Step 2: Create the new set with the real ID from server
+      // Step 2: Create the new set with the real ID from server (MODULE 2: SURGICAL RIR FIX)
+      // MODULE 4: MISTAKE HIGHLIGHTING - Previously used 'rir: 0' which caused RIR bug
       const newSet: SetLogData = {
         id: realId,
         setNumber: sets.length + 1,
-        weight: 0, reps: 0, rpe: 0, rir: null,
+        weight: 0, reps: 0, rpe: 0, rir: null, // FIXED: RIR starts as null, not 0
         isCompleted: false,
       };
-
-      // Step 3: Only update local state AFTER server confirms
+      
+      // Step 3: Only update local state AFTER server confirms (MODULE 1: PESSIMISTIC UI)
+      // MODULE 4: MISTAKE HIGHLIGHTING - "Optimistic" update was previously risking data loss
       const updatedSets = [...sets, newSet];
       setSets(updatedSets);
 
@@ -743,7 +787,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
       // No UI revert needed since we didn't update UI before server success
     } finally {
       // Always clear loading state
-      setIsSavingSet(null);
+      setIsSaving(null);
     }
   };
 
@@ -946,7 +990,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
             onToggle={handleToggle}
             onFieldChange={handleFieldChange}
             onRemoveSet={handleRemoveSet}
-            isSavingSet={isSavingSet}
+            isSavingSet={isSaving}
           />
         ))}
       </div>
@@ -957,32 +1001,32 @@ const ExerciseCard = React.memo(function ExerciseCard({
       {/* Add Set button */}
       <button
         onClick={handleAddSet}
-        disabled={isSavingSet === "add-set"}
+        disabled={isSaving === "add-set"}
         style={{
           width: "100%", padding: 8,
-          ...monoLabel(9, isSavingSet === "add-set" ? THEME.textMuted : THEME.textGhost),
+          ...monoLabel(9, isSaving === "add-set" ? THEME.textMuted : THEME.textGhost),
           background: "transparent", border: "none",
           borderTop: `1px solid ${THEME.border}`,
-          cursor: isSavingSet === "add-set" ? "not-allowed" : "pointer", 
+          cursor: isSaving === "add-set" ? "not-allowed" : "pointer", 
           display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
           borderRadius: THEME.borderRadius,
           transition: "color 0.15s, background 0.15s",
-          opacity: isSavingSet === "add-set" ? 0.5 : 1,
+          opacity: isSaving === "add-set" ? 0.5 : 1,
         }}
         onMouseEnter={(e) => {
-          if (isSavingSet !== "add-set") {
+          if (isSaving !== "add-set") {
             (e.currentTarget as HTMLButtonElement).style.color = THEME.textPrimary;
             (e.currentTarget as HTMLButtonElement).style.background = THEME.surface3;
           }
         }}
         onMouseLeave={(e) => {
-          if (isSavingSet !== "add-set") {
+          if (isSaving !== "add-set") {
             (e.currentTarget as HTMLButtonElement).style.color = THEME.textGhost;
             (e.currentTarget as HTMLButtonElement).style.background = "transparent";
           }
         }}
       >
-        {isSavingSet === "add-set" ? (
+        {isSaving === "add-set" ? (
           <>⋯ Saving...</>
         ) : (
           <>
