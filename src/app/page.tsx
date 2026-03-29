@@ -536,8 +536,38 @@ const ExerciseCard = React.memo(function ExerciseCard({
     return initial;
   });
 
-  // Sync fieldValues when set IDs upgrade from temp to real
   useEffect(() => {
+    // 1. Detect if the server log suddenly provides REAL IDs for our TEMP sets
+    let hasIdUpgrades = false;
+    const idMap: Record<string, string> = {}; // old -> new
+    
+    const upgradedSets = sets.map((s, i) => {
+      const serverSet = log.sets[i];
+      if (serverSet && serverSet.id !== s.id && s.id.startsWith("temp-")) {
+        hasIdUpgrades = true;
+        idMap[s.id] = serverSet.id;
+        return { ...s, id: serverSet.id };
+      }
+      return s;
+    });
+
+    if (hasIdUpgrades) {
+      setSets(upgradedSets);
+      // Migrate the string inputs to the new IDs safely
+      setFieldValues(prev => {
+        const nextVals = { ...prev };
+        for (const [oldId, newId] of Object.entries(idMap)) {
+          if (nextVals[oldId]) {
+            nextVals[newId] = nextVals[oldId];
+            delete nextVals[oldId];
+          }
+        }
+        return nextVals;
+      });
+      return; // Skip normal sync when doing an ID migration sync
+    }
+
+    // 2. Normal sync (e.g. adding a new set)
     setFieldValues(prev => {
       const next: Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }> = {};
       for (const s of sets) {
@@ -554,7 +584,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
       }
       return next;
     });
-  }, [sets]);
+  }, [sets, log.sets]);
 
   // Error message shown in red if a DB save fails
   const [error, setError] = useState<string | null>(null);
@@ -3361,7 +3391,7 @@ export default function RepLogPage() {
                     .sort((a, b) => a.orderIndex - b.orderIndex)
                     .map((log) => (
                       <ExerciseCard
-                        key={log.id}
+                        key={`${log.orderIndex}-${log.exerciseId}`}
                         log={log}
                         onRemove={() => handleRemoveExercise(log.id)}
                         onEdit={(logId) => {
