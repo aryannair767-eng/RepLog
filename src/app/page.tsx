@@ -2520,9 +2520,29 @@ export default function RepLogPage() {
 
   // ── handleEndSession ──────────────────────────────────────────
   const handleEndSession = async () => {
-    if (!session) return;
+    if (!session) {
+      console.error("No session found to end");
+      alert("No active session found to end.");
+      return;
+    }
+    
+    // Validate session structure
+    if (!session.id) {
+      console.error("Session ID is missing:", session);
+      alert("Invalid session data. Please refresh the page and try again.");
+      return;
+    }
+    
+    console.log("Session validation passed:", {
+      id: session.id,
+      name: session.name,
+      isActive: session.isActive,
+      logsCount: session.logs?.length || 0
+    });
+    
     setActionLoading(true);
     try {
+      console.log("Attempting to end session:", session.id);
       await endSession(session.id);
 
       setSession(null);
@@ -2542,14 +2562,20 @@ export default function RepLogPage() {
       const updated = await getPreviousSessions();
       setPreviousSessions(updated);
       
-      // Show success feedback (optional - could be a toast)
+      // Show success feedback
       console.log("Session ended successfully and saved to previous sessions");
     } catch (e) {
-      console.error("Failed to end session:", e);
-      // Show error feedback to user
-      alert("Failed to end session. Please try again.");
-      // Don't reset session state on error - let user try again
-      // setActionLoading(false) will be called in finally block
+      console.error("Failed to end session - full error:", e);
+      console.error("Error details:", {
+        sessionId: session.id,
+        sessionName: session.name,
+        errorMessage: e instanceof Error ? e.message : 'Unknown error',
+        errorStack: e instanceof Error ? e.stack : undefined
+      });
+      
+      // Show more specific error feedback to user
+      const errorMessage = e instanceof Error ? e.message : 'Unknown error occurred';
+      alert(`Failed to end session: ${errorMessage}. Please try again.`);
     } finally {
       setActionLoading(false);
     }

@@ -121,28 +121,42 @@ export async function createSession(): Promise<WorkoutSessionData> {
 // ── endSession ────────────────────────────────────────────────
 // Marks a session as finished and records the end time.
 export async function endSession(sessionId: string): Promise<void> {
-  const userId = await getAuthUserId();
-  
-  // First verify the session belongs to this user
-  const session = await prisma.workoutSession.findFirst({
-    where: { id: sessionId, userId },
-  });
-  
-  if (!session) {
-    throw new Error(`Session ${sessionId} not found for user ${userId}`);
-  }
-  
-  // Use update (not updateMany) so it throws if the row 
-  // doesn't exist instead of silently doing nothing
-  await prisma.workoutSession.update({
-    where: { id: sessionId },
-    data: {
-      isActive: false,
-      endTime: new Date(),
-    },
-  });
+  try {
+    console.log("endSession called with sessionId:", sessionId);
+    
+    const userId = await getAuthUserId();
+    console.log("User ID authenticated:", userId);
+    
+    // First verify the session belongs to this user
+    const session = await prisma.workoutSession.findFirst({
+      where: { id: sessionId, userId },
+    });
+    
+    console.log("Session found:", session ? "yes" : "no");
+    
+    if (!session) {
+      console.error("Session not found for user:", { sessionId, userId });
+      throw new Error(`Session ${sessionId} not found for user ${userId}`);
+    }
+    
+    console.log("Updating session to inactive...");
+    
+    // Use update (not updateMany) so it throws if the row 
+    // doesn't exist instead of silently doing nothing
+    await prisma.workoutSession.update({
+      where: { id: sessionId },
+      data: {
+        isActive: false,
+        endTime: new Date(),
+      },
+    });
 
-  revalidatePath("/");
+    console.log("Session successfully ended");
+    revalidatePath("/");
+  } catch (error) {
+    console.error("Error in endSession:", error);
+    throw error; // Re-throw to let client handle it
+  }
 }
 
 // ── deleteSession ─────────────────────────────────────────────
