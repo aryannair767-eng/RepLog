@@ -394,9 +394,9 @@ const SetRow = React.memo(function SetRow({
 }: {
   set: SetLogData;
   index: number;
-  fieldValues: { weight: number; reps: number; rpe: number; rir: number };
+  fieldValues: { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" };
   onToggle: (id: string, current: boolean) => void;
-  onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => void;
+  onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number | "") => void;
   onRemoveSet: (id: string) => void;
 }) {
   return (
@@ -422,14 +422,17 @@ const SetRow = React.memo(function SetRow({
             step={field === "weight" || field === "rpe" ? "0.1" : "1"}
             inputMode={field === "weight" || field === "rpe" ? "decimal" : "numeric"}
             value={
-              fieldValues[field] === 0 && (field === "weight" || field === "reps") && !set.isCompleted
-                ? "" 
-                : fieldValues[field]
+              fieldValues[field]
             }
             placeholder="—"
             onChange={(e) => {
+              const strVal = e.target.value;
+              if (strVal === "") {
+                onFieldChange(set.id, field, "");
+                return;
+              }
               const max = field === "rpe" || field === "rir" ? 10 : 999;
-              const val = Math.min(Math.max(0, Number(e.target.value) || 0), max);
+              const val = Math.min(Math.max(0, Number(strVal) || 0), max);
               onFieldChange(set.id, field, val);
             }}
             onKeyDown={(e) => {
@@ -521,11 +524,11 @@ const ExerciseCard = React.memo(function ExerciseCard({
   
   // Track continuous input values to survive mounting and key changes
   const [fieldValues, setFieldValues] = useState<
-    Record<string, { weight: number; reps: number; rpe: number; rir: number }>
+    Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }>
   >(() => {
-    const initial: Record<string, { weight: number; reps: number; rpe: number; rir: number }> = {};
+    const initial: Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }> = {};
     for (const s of log.sets) {
-      initial[s.id] = { weight: s.weight, reps: s.reps, rpe: s.rpe, rir: s.rir };
+      initial[s.id] = { weight: s.weight === 0 ? "" : s.weight, reps: s.reps === 0 ? "" : s.reps, rpe: s.rpe === 0 ? "" : s.rpe, rir: s.rir === 0 ? "" : s.rir };
     }
     return initial;
   });
@@ -533,12 +536,12 @@ const ExerciseCard = React.memo(function ExerciseCard({
   // Sync fieldValues when set IDs upgrade from temp to real
   useEffect(() => {
     setFieldValues(prev => {
-      const next: Record<string, { weight: number; reps: number; rpe: number; rir: number }> = {};
+      const next: Record<string, { weight: number | ""; reps: number | ""; rpe: number | ""; rir: number | "" }> = {};
       for (const s of sets) {
         if (prev[s.id]) {
           next[s.id] = prev[s.id];
         } else {
-          next[s.id] = { weight: s.weight, reps: s.reps, rpe: s.rpe, rir: s.rir };
+          next[s.id] = { weight: s.weight === 0 ? "" : s.weight, reps: s.reps === 0 ? "" : s.reps, rpe: s.rpe === 0 ? "" : s.rpe, rir: s.rir === 0 ? "" : s.rir };
         }
       }
       return next;
@@ -593,15 +596,17 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
   // ── handleFieldChange ────────────────────────────────────────
   const handleFieldChange = useCallback(
-    (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => {
+    (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number | "") => {
       // Update controlled input values immediately
       setFieldValues(prev => ({
         ...prev,
-        [setId]: { ...(prev[setId] ?? { weight: 0, reps: 0, rpe: 0, rir: 0 }), [field]: value }
+        [setId]: { ...(prev[setId] ?? { weight: "", reps: "", rpe: "", rir: "" }), [field]: value }
       }));
 
+      const numValue = value === "" ? 0 : value;
+
       // Instant local React state update
-      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: value } : s));
+      setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: numValue } : s));
 
       // Debounce BOTH IndexedDB and server writes together
       const key = `${setId}-${field}`;
@@ -613,7 +618,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
           if (localSession) {
             const updatedLogs = localSession.logs.map(l => {
               if (l.id === log.id) {
-                return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: value } : s) };
+                return { ...l, sets: l.sets.map(s => s.id === setId ? { ...s, [field]: numValue } : s) };
               }
               return l;
             });
@@ -627,7 +632,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
 
         // Server write
         try {
-          await updateSetField(setId, field, value);
+          await updateSetField(setId, field, numValue);
         } catch {
           setError(`Delayed sync: ${field} will save when online.`);
         }
@@ -680,7 +685,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
             if (s.reps > 0) updateSetField(syncId, "reps", s.reps).catch(()=>{});
             if (s.rpe > 0) updateSetField(syncId, "rpe", s.rpe).catch(()=>{});
             if (s.rir > 0) updateSetField(syncId, "rir", s.rir).catch(()=>{});
-            if (s.isCompleted) toggleSetComplete(syncId, true).catch(()=>{});
+            if (s.isCompleted) toggleSetComplete(syncId, true).then(() => onStatsRefresh()).catch(()=>{});
             
             return { ...s, id: syncId };
           }
@@ -2574,7 +2579,7 @@ export default function RepLogPage() {
                    if (localSet.rpe > 0) updateSetField(serverSet.id, "rpe", localSet.rpe).catch(()=>{});
                    if (localSet.rir > 0) updateSetField(serverSet.id, "rir", localSet.rir).catch(()=>{});
                    if (localSet.isCompleted) {
-                     toggleSetComplete(serverSet.id, true).catch(()=>{});
+                     toggleSetComplete(serverSet.id, true).then(() => handleStatsRefresh()).catch(()=>{});
                    }
                 }
                 
