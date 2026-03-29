@@ -116,6 +116,26 @@ export const authOptions: NextAuthOptions = {
           token.isProfileComplete = (user as any).isProfileComplete;
         }
       }
+
+      // Self-healing: on every token refresh, verify the ID is valid.
+      // If the stored ID doesn't exist in the DB, fix it using email lookup.
+      if (!user && token.email && token.id) {
+        const exists = await authPrisma.user.findUnique({
+          where: { id: token.id as string },
+          select: { id: true },
+        });
+        if (!exists) {
+          const realUser = await authPrisma.user.findUnique({
+            where: { email: token.email as string },
+            select: { id: true, isProfileComplete: true },
+          });
+          if (realUser) {
+            token.id = realUser.id;
+            token.isProfileComplete = realUser.isProfileComplete;
+          }
+        }
+      }
+
       if (trigger === "update" && session?.isProfileComplete) {
         token.isProfileComplete = session.isProfileComplete;
         token.name = session.name;
