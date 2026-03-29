@@ -390,10 +390,11 @@ function RestTimer({ triggerReset }: { triggerReset: number }) {
 
 // ── SetRow ─────────────────────────────────────────────────────
 const SetRow = React.memo(function SetRow({
-  set, index, onToggle, onFieldChange, onRemoveSet,
+  set, index, fieldValues, onToggle, onFieldChange, onRemoveSet,
 }: {
   set: SetLogData;
   index: number;
+  fieldValues: { weight: number; reps: number; rpe: number; rir: number };
   onToggle: (id: string, current: boolean) => void;
   onFieldChange: (id: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => void;
   onRemoveSet: (id: string) => void;
@@ -420,8 +421,8 @@ const SetRow = React.memo(function SetRow({
             type="number"
             step={field === "weight" || field === "rpe" ? "0.1" : "1"}
             inputMode={field === "weight" || field === "rpe" ? "decimal" : "numeric"}
-            defaultValue={
-              set[field] === 0 && !set.isCompleted ? "" : set[field]
+            value={
+              fieldValues[field] === 0 ? "" : fieldValues[field]
             }
             placeholder="—"
             onChange={(e) => {
@@ -450,8 +451,6 @@ const SetRow = React.memo(function SetRow({
               outline: "none",
               transition: "border-color 0.2s, background 0.2s",
             }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = THEME.lime)}
-            onBlur={(e) => (e.currentTarget.style.borderColor = THEME.border)}
           />
         ))}
       </div>
@@ -517,6 +516,33 @@ const ExerciseCard = React.memo(function ExerciseCard({
   const [sets, setSets] = useState<SetLogData[]>(log.sets);
   // Reset key — forces SetRow remount when inputs are cleared
   const [resetKey, setResetKey] = useState(0);
+  
+  // Track continuous input values to survive mounting and key changes
+  const [fieldValues, setFieldValues] = useState<
+    Record<string, { weight: number; reps: number; rpe: number; rir: number }>
+  >(() => {
+    const initial: Record<string, { weight: number; reps: number; rpe: number; rir: number }> = {};
+    for (const s of log.sets) {
+      initial[s.id] = { weight: s.weight, reps: s.reps, rpe: s.rpe, rir: s.rir };
+    }
+    return initial;
+  });
+
+  // Sync fieldValues when set IDs upgrade from temp to real
+  useEffect(() => {
+    setFieldValues(prev => {
+      const next: Record<string, { weight: number; reps: number; rpe: number; rir: number }> = {};
+      for (const s of sets) {
+        if (prev[s.id]) {
+          next[s.id] = prev[s.id];
+        } else {
+          next[s.id] = { weight: s.weight, reps: s.reps, rpe: s.rpe, rir: s.rir };
+        }
+      }
+      return next;
+    });
+  }, [sets]);
+
   // Error message shown in red if a DB save fails
   const [error, setError] = useState<string | null>(null);
   // Increments each time a set is completed — triggers the rest timer
@@ -564,6 +590,12 @@ const ExerciseCard = React.memo(function ExerciseCard({
   // ── handleFieldChange ────────────────────────────────────────
   const handleFieldChange = useCallback(
     (setId: string, field: "weight" | "reps" | "rpe" | "rir", value: number) => {
+      // Update controlled input values immediately
+      setFieldValues(prev => ({
+        ...prev,
+        [setId]: { ...(prev[setId] ?? { weight: 0, reps: 0, rpe: 0, rir: 0 }), [field]: value }
+      }));
+
       // Instant local React state update
       setSets((prev) => prev.map((s) => s.id === setId ? { ...s, [field]: value } : s));
 
@@ -660,6 +692,10 @@ const ExerciseCard = React.memo(function ExerciseCard({
       if (hasInput) {
         // Clear inputs first — reset all fields to 0
         setSets([{ ...currentSet!, weight: 0, reps: 0, rpe: 0, rir: 0 }]);
+        setFieldValues(prev => ({
+          ...prev,
+          [currentSet!.id]: { weight: 0, reps: 0, rpe: 0, rir: 0 }
+        }));
         setResetKey(k => k + 1);
         // Do NOT remove the exercise yet
         return;
@@ -836,6 +872,7 @@ const ExerciseCard = React.memo(function ExerciseCard({
             key={`${set.id}-${resetKey}`}
             set={set}
             index={i}
+            fieldValues={fieldValues[set.id] ?? { weight: 0, reps: 0, rpe: 0, rir: 0 }}
             onToggle={handleToggle}
             onFieldChange={handleFieldChange}
             onRemoveSet={handleRemoveSet}
